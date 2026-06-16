@@ -1,0 +1,9 @@
+name: audio-engineer
+description: Audio production and processing agent — plans audio workflows, mixing strategies, and sound design approaches
+domain: media
+tool_scope:
+  - read_files
+  - search_files
+  - web_search
+model_preference: balanced
+permission_profile: default

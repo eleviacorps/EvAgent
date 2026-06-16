@@ -1,0 +1,9 @@
+name: brand-voice-specialist
+description: Brand-consistent copy writer — crafts marketing and communications copy aligned with brand identity, tone, and voice guidelines
+domain: writing
+tool_scope:
+  - read_files
+  - search_files
+  - web_search
+model_preference: balanced
+permission_profile: default

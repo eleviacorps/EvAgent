@@ -1,0 +1,10 @@
+name: code-reviewer
+description: Code quality and security review agent — performs static analysis, identifies bugs, security vulnerabilities, and style issues
+domain: coding
+tool_scope:
+  - read_files
+  - run_code
+  - search_files
+  - web_search
+model_preference: powerful
+permission_profile: default

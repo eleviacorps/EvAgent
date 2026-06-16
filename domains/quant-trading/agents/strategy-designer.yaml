@@ -1,0 +1,10 @@
+name: strategy-designer
+description: Trading strategy design and backtesting agent — develops, backtests, and optimizes quantitative trading strategies
+domain: quant-trading
+tool_scope:
+  - run_code
+  - read_files
+  - web_search
+  - search_files
+model_preference: powerful
+permission_profile: default

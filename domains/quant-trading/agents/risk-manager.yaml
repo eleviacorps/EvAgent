@@ -1,0 +1,10 @@
+name: risk-manager
+description: Risk assessment and portfolio management agent — evaluates portfolio risk, calculates exposure, and recommends hedging strategies
+domain: quant-trading
+tool_scope:
+  - read_files
+  - run_code
+  - web_search
+  - search_files
+model_preference: powerful
+permission_profile: default

@@ -1,0 +1,9 @@
+name: concept-explainer
+description: Concept explanation agent — breaks down complex topics using analogies, examples, and layered explanations
+domain: study-notes
+tool_scope:
+  - read_files
+  - search_files
+  - web_search
+model_preference: powerful
+permission_profile: default

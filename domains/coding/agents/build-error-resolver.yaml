@@ -1,0 +1,11 @@
+name: build-error-resolver
+description: Build failure diagnostics agent — analyzes compilation errors, dependency conflicts, and CI pipeline failures with actionable fixes
+domain: coding
+tool_scope:
+  - read_files
+  - run_code
+  - web_search
+  - list_directory
+  - search_files
+model_preference: powerful
+permission_profile: default

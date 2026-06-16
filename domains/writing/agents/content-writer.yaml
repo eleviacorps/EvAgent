@@ -1,0 +1,9 @@
+name: content-writer
+description: General content and essay writer — produces clear, engaging content across formats and subjects
+domain: writing
+tool_scope:
+  - read_files
+  - search_files
+  - web_search
+model_preference: balanced
+permission_profile: default

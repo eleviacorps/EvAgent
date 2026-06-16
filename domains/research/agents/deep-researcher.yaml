@@ -1,0 +1,10 @@
+name: deep-researcher
+description: Multi-source deep research agent — conducts comprehensive research across web, academic, and specialized sources
+domain: research
+tool_scope:
+  - web_search
+  - read_files
+  - search_files
+  - list_directory
+model_preference: powerful
+permission_profile: default

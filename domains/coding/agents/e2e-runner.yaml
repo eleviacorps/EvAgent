@@ -1,0 +1,10 @@
+name: e2e-runner
+description: End-to-end testing agent — designs, executes, and interprets E2E test suites across UI, API, and integration layers
+domain: coding
+tool_scope:
+  - read_files
+  - run_code
+  - web_search
+  - list_directory
+model_preference: fast
+permission_profile: default

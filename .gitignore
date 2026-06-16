@@ -1,0 +1,28 @@
+# Rust
+target/
+**/*.rs.bk
+
+# Node
+node_modules/
+dist/
+.turbo
+
+# OS
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+
+# IDE
+.idea/
+.vscode/
+*.iml
+
+# Env
+.env
+*.env.local
+core/
+tui/
+*.db
+*.db-shm
+*.db-wal

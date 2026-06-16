@@ -1,0 +1,10 @@
+name: technical-writer
+description: Documentation and technical content writer — creates clear, accurate documentation, guides, and API references
+domain: writing
+tool_scope:
+  - read_files
+  - run_code
+  - search_files
+  - list_directory
+model_preference: balanced
+permission_profile: default

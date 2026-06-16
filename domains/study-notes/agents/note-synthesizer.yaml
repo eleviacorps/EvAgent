@@ -1,0 +1,9 @@
+name: note-synthesizer
+description: Study note generation agent — transforms source material into structured, organized study notes
+domain: study-notes
+tool_scope:
+  - read_files
+  - search_files
+  - web_search
+model_preference: balanced
+permission_profile: default

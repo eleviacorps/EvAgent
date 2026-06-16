@@ -1,0 +1,10 @@
+name: literature-reviewer
+description: Academic paper analysis agent — reads, summarizes, and critiques academic papers with structured analysis
+domain: research
+tool_scope:
+  - web_search
+  - read_files
+  - search_files
+  - list_directory
+model_preference: powerful
+permission_profile: default

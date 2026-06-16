@@ -1,0 +1,10 @@
+name: video-editor
+description: Video editing workflow agent — plans editing workflows, suggests cuts, transitions, and post-production techniques
+domain: media
+tool_scope:
+  - read_files
+  - search_files
+  - web_search
+  - list_directory
+model_preference: balanced
+permission_profile: default

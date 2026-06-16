@@ -1,0 +1,10 @@
+name: architect
+description: System design and architecture agent — designs scalable, maintainable system architectures and makes technology recommendations
+domain: coding
+tool_scope:
+  - read_files
+  - web_search
+  - search_files
+  - list_directory
+model_preference: powerful
+permission_profile: default

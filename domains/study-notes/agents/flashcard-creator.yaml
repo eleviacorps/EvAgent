@@ -1,0 +1,8 @@
+name: flashcard-creator
+description: Spaced-repetition flashcard creator — generates effective flashcards from study material for SRS systems
+domain: study-notes
+tool_scope:
+  - read_files
+  - search_files
+model_preference: balanced
+permission_profile: default

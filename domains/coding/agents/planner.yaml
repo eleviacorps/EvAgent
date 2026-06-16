@@ -1,0 +1,11 @@
+name: planner
+description: Implementation planning agent — breaks down tasks into actionable steps, estimates effort, and produces structured implementation plans
+domain: coding
+tool_scope:
+  - read_files
+  - web_search
+  - run_code
+  - list_directory
+  - search_files
+model_preference: powerful
+permission_profile: default

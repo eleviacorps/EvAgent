@@ -1,0 +1,8 @@
+name: messenger-bot
+description: Conversational message drafting agent — crafts natural, context-appropriate messages for chat and messaging platforms
+domain: communication
+tool_scope:
+  - read_files
+  - search_files
+model_preference: fast
+permission_profile: default
