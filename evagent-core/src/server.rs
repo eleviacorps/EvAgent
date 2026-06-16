@@ -190,7 +190,7 @@ async fn handle_dispatch(
 
     let agents = state.agent_registry.list(Some(&router_output.domain))?;
     if agents.is_empty() {
-        // No agents for this domain — chat directly with the LLM
+        info!("[dispatch] No agents for domain '{}', falling back to LLM chat", router_output.domain);
         let mut session = state.session_store.create(&router_output.domain)?;
         let msg = crate::models::Message {
             id: uuid::Uuid::new_v4().to_string(),
@@ -203,14 +203,23 @@ async fn handle_dispatch(
         state.session_store.append_message(&session.id, msg)?;
 
         let api_key = std::env::var("EVAGENT_API_KEY").unwrap_or_default();
-        let result = if !api_key.is_empty() && !api_key.starts_with("sk-VXvH") {
-            // Call the LLM for a real response
+        let key_usable = api_key.len() > 20 && !api_key.contains("...");
+        info!("[dispatch] EVAGENT_API_KEY set={}, usable={}, len={}", !api_key.is_empty(), key_usable, api_key.len());
+
+        let result = if key_usable {
             let base_url = std::env::var("EVAGENT_BASE_URL")
                 .unwrap_or_else(|_| "https://opencode.ai/zen/v1".to_string());
             let model = std::env::var("EVAGENT_MODEL")
                 .unwrap_or_else(|_| "deepseek-v4-flash-free".to_string());
-            call_llm(prompt, &api_key, &base_url, &model).unwrap_or_else(|e| format!("LLM error: {}", e))
+            info!("[dispatch] Calling LLM: base_url={}, model={}", base_url, model);
+            let llm_result = call_llm(prompt, &api_key, &base_url, &model);
+            match &llm_result {
+                Ok(text) => info!("[dispatch] LLM OK: {} chars", text.len()),
+                Err(e) => info!("[dispatch] LLM error: {}", e),
+            }
+            llm_result.unwrap_or_else(|e| format!("LLM error: {}", e))
         } else {
+            info!("[dispatch] No usable API key, echoing message");
             format!("[{}] Received: \"{}\"", chrono::Utc::now().format("%H:%M:%S"), prompt)
         };
 
