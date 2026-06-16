@@ -212,7 +212,7 @@ async fn handle_dispatch(
             let model = std::env::var("EVAGENT_MODEL")
                 .unwrap_or_else(|_| "deepseek-v4-flash-free".to_string());
             info!("[dispatch] Calling LLM: base_url={}, model={}", base_url, model);
-            let llm_result = call_llm(prompt, &api_key, &base_url, &model);
+            let llm_result = call_llm(prompt, &api_key, &base_url, &model).await;
             match &llm_result {
                 Ok(text) => info!("[dispatch] LLM OK: {} chars", text.len()),
                 Err(e) => info!("[dispatch] LLM error: {}", e),
@@ -399,7 +399,7 @@ pub fn initialize_engine(config: &HermesConfig) -> HermesResult<Arc<AppState>> {
 }
 
 /// Call the LLM for a direct response (used when no agents match)
-fn call_llm(prompt: &str, api_key: &str, base_url: &str, model: &str) -> Result<String, String> {
+async fn call_llm(prompt: &str, api_key: &str, base_url: &str, model: &str) -> Result<String, String> {
     let url = format!("{}/chat/completions", base_url.trim_end_matches('/'));
 
     let body = serde_json::json!({
@@ -409,8 +409,8 @@ fn call_llm(prompt: &str, api_key: &str, base_url: &str, model: &str) -> Result<
         "temperature": 0.7,
     });
 
-    let client = reqwest::blocking::Client::builder()
-        .timeout(std::time::Duration::from_secs(60))
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(120))
         .build()
         .map_err(|e| format!("Failed to create HTTP client: {}", e))?;
 
@@ -420,16 +420,18 @@ fn call_llm(prompt: &str, api_key: &str, base_url: &str, model: &str) -> Result<
         .header("Content-Type", "application/json")
         .json(&body)
         .send()
+        .await
         .map_err(|e| format!("HTTP request failed: {}", e))?;
 
     let status = resp.status();
     if !status.is_success() {
-        let text = resp.text().unwrap_or_default();
+        let text = resp.text().await.unwrap_or_default();
         return Err(format!("HTTP {}: {}", status, text));
     }
 
     let json: serde_json::Value = resp
         .json()
+        .await
         .map_err(|e| format!("Failed to parse response: {}", e))?;
 
     let text = json["choices"][0]["message"]["content"]
