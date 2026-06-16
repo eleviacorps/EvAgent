@@ -152,7 +152,7 @@ async fn cmd_start(config_path: Option<String>, port_override: Option<u16>) -> H
 }
 
 /// `agent list` subcommand: display registered agents.
-async fn cmd_agent_list(config_path: Option<String>, action: AgentAction) -> HermesResult<()> {
+pub async fn cmd_agent_list(config_path: Option<String>, action: AgentAction) -> HermesResult<()> {
     let config = config::load_config(config_path.as_deref())?;
     let conn = Arc::new(std::sync::Mutex::new(
         rusqlite::Connection::open(&config.store.db_path)
@@ -171,8 +171,7 @@ async fn cmd_agent_list(config_path: Option<String>, action: AgentAction) -> Her
         println!("No agents registered.");
         println!();
         println!("To register agents, place .yaml files in:");
-        println!("  - evagent/agents/");
-        println!("  - evagent/domains/*/agents/");
+        println!("  - domains/*/agents/");
         return Ok(());
     }
 
@@ -309,7 +308,7 @@ async fn cmd_validate(config_path: Option<String>) -> HermesResult<()> {
         if path.exists() {
             println!("✅ Agent path '{}' exists.", path.display());
         } else {
-            println!("ℹ️  Agent path '{}' does not exist yet. Create it to register agents.", path.display());
+            println!("\nℹ️  Path '{}' does not exist yet.", path.display());
         }
     }
 

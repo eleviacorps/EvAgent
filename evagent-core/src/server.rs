@@ -353,8 +353,7 @@ pub fn initialize_engine(config: &HermesConfig) -> HermesResult<Arc<AppState>> {
     });
 
     let agent_paths = vec![
-        std::path::PathBuf::from("evagent/agents"),
-        std::path::PathBuf::from("evagent/domains"),
+        std::path::PathBuf::from("domains"),
     ];
     state.agent_registry.register_scan_paths(&agent_paths);
     if let Err(e) = state.agent_registry.scan_and_register() {
@@ -362,8 +361,7 @@ pub fn initialize_engine(config: &HermesConfig) -> HermesResult<Arc<AppState>> {
     }
 
     let skill_paths = vec![
-        std::path::PathBuf::from("evagent/skills"),
-        std::path::PathBuf::from("evagent/domains"),
+        std::path::PathBuf::from("domains"),
     ];
     if let Err(e) = state.skill_loader.reload_index(&skill_paths) {
         warn!("Skill load issue: {}", e);
