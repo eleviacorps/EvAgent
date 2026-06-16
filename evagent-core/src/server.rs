@@ -405,7 +405,7 @@ fn call_llm(prompt: &str, api_key: &str, base_url: &str, model: &str) -> Result<
     let body = serde_json::json!({
         "model": model,
         "messages": [{"role": "user", "content": prompt}],
-        "max_tokens": 512,
+        "max_tokens": 2048,
         "temperature": 0.7,
     });
 
@@ -436,6 +436,16 @@ fn call_llm(prompt: &str, api_key: &str, base_url: &str, model: &str) -> Result<
         .as_str()
         .unwrap_or("")
         .to_string();
+
+    // deepseek-v4 puts reasoning in reasoning_content, fallback to that
+    let text = if text.is_empty() {
+        json["choices"][0]["message"]["reasoning_content"]
+            .as_str()
+            .unwrap_or("")
+            .to_string()
+    } else {
+        text
+    };
 
     if text.is_empty() {
         Err("Empty response from LLM".to_string())
