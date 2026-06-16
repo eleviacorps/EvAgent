@@ -189,8 +189,11 @@ async fn handle_dispatch(
     }
 
     let agents = state.agent_registry.list(Some(&router_output.domain))?;
-    if agents.is_empty() {
-        info!("[dispatch] No agents for domain '{}', falling back to LLM chat", router_output.domain);
+    let api_key = std::env::var("EVAGENT_API_KEY").unwrap_or_default();
+    let key_usable = api_key.len() > 20 && !api_key.contains("...");
+
+    if agents.is_empty() || !key_usable {
+        info!("[dispatch] No agents or no API key, using direct LLM/echo");
         let mut session = state.session_store.create(&router_output.domain)?;
         let msg = crate::models::Message {
             id: uuid::Uuid::new_v4().to_string(),
@@ -201,10 +204,6 @@ async fn handle_dispatch(
             tokens: 0,
         };
         state.session_store.append_message(&session.id, msg)?;
-
-        let api_key = std::env::var("EVAGENT_API_KEY").unwrap_or_default();
-        let key_usable = api_key.len() > 20 && !api_key.contains("...");
-        info!("[dispatch] EVAGENT_API_KEY set={}, usable={}, len={}", !api_key.is_empty(), key_usable, api_key.len());
 
         let result = if key_usable {
             let base_url = std::env::var("EVAGENT_BASE_URL")
@@ -405,7 +404,7 @@ fn call_llm(prompt: &str, api_key: &str, base_url: &str, model: &str) -> Result<
     let body = serde_json::json!({
         "model": model,
         "messages": [{"role": "user", "content": prompt}],
-        "max_tokens": 2048,
+        "max_tokens": 32768,
         "temperature": 0.7,
     });
 
