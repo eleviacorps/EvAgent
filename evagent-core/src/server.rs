@@ -384,17 +384,7 @@ pub fn initialize_engine(config: &HermesConfig) -> HermesResult<Arc<AppState>> {
 
 fn register_default_domains(router: &IntentRouter) -> HermesResult<()> {
     router.register_domain(RegisteredDomain {
-        name: "general".to_string(),
-        patterns: vec![
-            r"(?i)\bhello\b".to_string(), r"(?i)\bhi\b".to_string(), r"(?i)\bhey\b".to_string(),
-            r"(?i)\bwhat can you do\b".to_string(), r"(?i)\bhelp\b".to_string(),
-            r"(?i)\bwho are you\b".to_string(), r"(?i)\bintroduce yourself\b".to_string(),
-            r"(?i)\bthanks\b".to_string(), r"(?i)\bthank you\b".to_string(), r"(?i)\bbye\b".to_string(),
-        ],
-        agents: vec!["general_assistant".to_string()],
-    })?;
-    router.register_domain(RegisteredDomain {
-        name: "engineering".to_string(), patterns: vec![
+        name: "coding".to_string(), patterns: vec![
             r"(?i)\bcode\b".to_string(), r"(?i)\breview\b".to_string(), r"(?i)\bbug\b".to_string(),
             r"(?i)\brefactor\b".to_string(), r"(?i)\bdeploy\b".to_string(), r"(?i)\bcommit\b".to_string(),
             r"(?i)\bmerge\b".to_string(), r"(?i)\btest\b".to_string(), r"(?i)\bdebug\b".to_string(),
@@ -403,7 +393,9 @@ fn register_default_domains(router: &IntentRouter) -> HermesResult<()> {
             r"(?i)\brewrite\b".to_string(), r"(?i)\blint\b".to_string(), r"(?i)\bbuild\b".to_string(),
             r"(?i)\bci\b".to_string(), r"(?i)\bcd\b".to_string(), r"(?i)\bdocker\b".to_string(),
             r"(?i)\bcontainer\b".to_string(), r"(?i)\bkubernetes\b".to_string(), r"(?i)\bk8s\b".to_string(),
-        ], agents: vec!["code_reviewer".to_string(), "devops_agent".to_string()],
+            r"(?i)\bplan\b".to_string(), r"(?i)\bimplementation\b".to_string(), r"(?i)\barchitect\b".to_string(),
+        ], agents: vec!["planner".to_string(), "architect".to_string(), "code-reviewer".to_string(),
+            "build-error-resolver".to_string(), "e2e-runner".to_string()],
     })?;
     router.register_domain(RegisteredDomain {
         name: "research".to_string(), patterns: vec![
@@ -411,24 +403,40 @@ fn register_default_domains(router: &IntentRouter) -> HermesResult<()> {
             r"(?i)\bresearch\b".to_string(), r"(?i)\binvestigate\b".to_string(), r"(?i)\bwhat is\b".to_string(),
             r"(?i)\bexplain\b".to_string(), r"(?i)\bsummarize\b".to_string(), r"(?i)\banalyze\b".to_string(),
             r"(?i)\bcompare\b".to_string(), r"(?i)\bdifference\b".to_string(), r"(?i)\bdefine\b".to_string(),
-        ], agents: vec!["research_agent".to_string()],
+        ], agents: vec!["deep-researcher".to_string(), "literature-reviewer".to_string(), "competitive-analyst".to_string()],
     })?;
     router.register_domain(RegisteredDomain {
-        name: "creative".to_string(), patterns: vec![
+        name: "writing".to_string(), patterns: vec![
             r"(?i)\bwrite\b".to_string(), r"(?i)\bcompose\b".to_string(), r"(?i)\bdraft\b".to_string(),
             r"(?i)\bcreate\b".to_string(), r"(?i)\bpoem\b".to_string(), r"(?i)\bstory\b".to_string(),
             r"(?i)\bessay\b".to_string(), r"(?i)\barticle\b".to_string(), r"(?i)\bcontent\b".to_string(),
             r"(?i)\bcreative\b".to_string(), r"(?i)\bgenerate\b".to_string(), r"(?i)\bidea\b".to_string(),
-        ], agents: vec!["writer_agent".to_string()],
+        ], agents: vec!["content-writer".to_string(), "brand-voice-specialist".to_string(), "technical-writer".to_string()],
+    })?;
+    router.register_domain(RegisteredDomain {
+        name: "quant-trading".to_string(), patterns: vec![
+            r"(?i)\btrade\b".to_string(), r"(?i)\bmarket\b".to_string(), r"(?i)\bstock\b".to_string(),
+            r"(?i)\bportfolio\b".to_string(), r"(?i)\binvest\b".to_string(), r"(?i)\bbuy\b".to_string(),
+            r"(?i)\bsell\b".to_string(), r"(?i)\bprice\b".to_string(), r"(?i)\bchart\b".to_string(),
+            r"(?i)\btrading\b".to_string(), r"(?i)\bstrategy\b".to_string(), r"(?i)\brisk\b".to_string(),
+        ], agents: vec!["strategy-designer".to_string(), "risk-manager".to_string(), "market-analyst".to_string()],
     })?;
     router.register_domain(RegisteredDomain {
         name: "data".to_string(), patterns: vec![
             r"(?i)\bdata\b".to_string(), r"(?i)\banalytics\b".to_string(), r"(?i)\bvisualize\b".to_string(),
-            r"(?i)\bchart\b".to_string(), r"(?i)\bgraph\b".to_string(), r"(?i)\bdashboard\b".to_string(),
+            r"(?i)\bdashboard\b".to_string(),
             r"(?i)\bmetrics\b".to_string(), r"(?i)\bstatistics\b".to_string(), r"(?i)\breport\b".to_string(),
             r"(?i)\bquery\b".to_string(), r"(?i)\bsql\b".to_string(), r"(?i)\bdatabase\b".to_string(),
             r"(?i)\bcsv\b".to_string(), r"(?i)\bexcel\b".to_string(),
-        ], agents: vec!["data_analyst".to_string()],
+        ], agents: vec!["market-analyst".to_string(), "deep-researcher".to_string()],
+    })?;
+    router.register_domain(RegisteredDomain {
+        name: "general".to_string(), patterns: vec![
+            r"(?i)\bhello\b".to_string(), r"(?i)\bhi\b".to_string(), r"(?i)\bhey\b".to_string(),
+            r"(?i)\bwhat can you do\b".to_string(), r"(?i)\bhelp\b".to_string(),
+            r"(?i)\bwho are you\b".to_string(), r"(?i)\bintroduce yourself\b".to_string(),
+            r"(?i)\bthanks\b".to_string(), r"(?i)\bthank you\b".to_string(), r"(?i)\bbye\b".to_string(),
+        ], agents: vec!["content-writer".to_string(), "planner".to_string(), "deep-researcher".to_string()],
     })?;
     Ok(())
 }
