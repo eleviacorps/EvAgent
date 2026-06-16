@@ -400,59 +400,47 @@ pub fn initialize_engine(config: &HermesConfig) -> HermesResult<Arc<AppState>> {
 
 /// Call the LLM for a direct response (used when no agents match)
 fn call_llm(prompt: &str, api_key: &str, base_url: &str, model: &str) -> Result<String, String> {
-    let safe_prompt = prompt.replace('"', "'").replace('\n', " ");
-    use std::io::Write;
+    let url = format!("{}/chat/completions", base_url.trim_end_matches('/'));
 
-    // Write a temporary Python script to avoid shell quoting nightmares
-    let script_content = format!(
-        r#"import json, urllib.request, sys
-data = json.dumps({{
-    "model": "{model}",
-    "messages": [{{"role": "user", "content": sys.argv[1]}}],
-    "max_tokens": 512,
-    "temperature": 0.7
-}}).encode()
-req = urllib.request.Request("{base_url}/chat/completions", data=data,
-    headers={{"Authorization": "Bearer {api_key}", "Content-Type": "application/json"}})
-try:
-    resp = json.loads(urllib.request.urlopen(req, timeout=60).read())
-    text = resp["choices"][0]["message"]["content"]
-    sys.stdout.write(text)
-except Exception as e:
-    sys.stdout.write("LLM_CALL_FAILED: " + str(e))
-"#
-    );
+    let body = serde_json::json!({
+        "model": model,
+        "messages": [{"role": "user", "content": prompt}],
+        "max_tokens": 512,
+        "temperature": 0.7,
+    });
 
-    let script_path = std::env::temp_dir().join(format!("evagent_llm_{}.py", uuid::Uuid::new_v4()));
-    let mut f = std::fs::File::create(&script_path)
-        .map_err(|e| format!("Failed to create script: {}", e))?;
-    f.write_all(script_content.as_bytes())
-        .map_err(|e| format!("Failed to write script: {}", e))?;
-    drop(f);
+    let client = reqwest::blocking::Client::builder()
+        .timeout(std::time::Duration::from_secs(60))
+        .build()
+        .map_err(|e| format!("Failed to create HTTP client: {}", e))?;
 
-    let output = std::process::Command::new("python")
-        .arg(script_path.to_str().unwrap_or(""))
-        .arg(&safe_prompt)
-        .output()
-        .map_err(|e| {
-            let _ = std::fs::remove_file(&script_path);
-            format!("Failed to run python: {}", e)
-        })?;
+    let resp = client
+        .post(&url)
+        .header("Authorization", format!("Bearer {}", api_key))
+        .header("Content-Type", "application/json")
+        .json(&body)
+        .send()
+        .map_err(|e| format!("HTTP request failed: {}", e))?;
 
-    let _ = std::fs::remove_file(&script_path);
+    let status = resp.status();
+    if !status.is_success() {
+        let text = resp.text().unwrap_or_default();
+        return Err(format!("HTTP {}: {}", status, text));
+    }
 
-    if output.status.success() {
-        let text = String::from_utf8_lossy(&output.stdout).trim().to_string();
-        if text.starts_with("LLM_CALL_FAILED:") {
-            Err(text.trim_start_matches("LLM_CALL_FAILED:").trim().to_string())
-        } else if text.is_empty() {
-            Err("Empty response from LLM".to_string())
-        } else {
-            Ok(text)
-        }
+    let json: serde_json::Value = resp
+        .json()
+        .map_err(|e| format!("Failed to parse response: {}", e))?;
+
+    let text = json["choices"][0]["message"]["content"]
+        .as_str()
+        .unwrap_or("")
+        .to_string();
+
+    if text.is_empty() {
+        Err("Empty response from LLM".to_string())
     } else {
-        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
-        Err(format!("Python process exited with code {:?}: {}", output.status.code(), stderr))
+        Ok(text)
     }
 }
 
