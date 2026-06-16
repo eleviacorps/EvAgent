@@ -190,14 +190,33 @@ async fn handle_dispatch(
 
     let agents = state.agent_registry.list(Some(&router_output.domain))?;
     if agents.is_empty() {
-        return Err(HermesError::router(format!(
-            "No agents found for domain '{}'",
+        // No agents for this domain — echo a friendly response
+        let mut session = state.session_store.create(&router_output.domain)?;
+        let msg = crate::models::Message {
+            id: uuid::Uuid::new_v4().to_string(),
+            session_id: session.id.clone(),
+            role: crate::models::MessageRole::User,
+            content: prompt.to_string(),
+            timestamp: chrono::Utc::now(),
+            tokens: 0,
+        };
+        state.session_store.append_message(&session.id, msg)?;
+
+        let echo = format!(
+            "[{}] Received your message. No specialized agents for domain '{}' — registering now.",
+            chrono::Utc::now().format("%H:%M:%S"),
             router_output.domain
-        )));
+        );
+        let resp = serde_json::to_string(&WsServerMessage::DispatchResult {
+            session_id: session.id,
+            outputs: vec![],
+            aggregated: Some(echo),
+        }).map_err(|e| HermesError::websocket_with("Serialize error", e))?;
+        let _ = state.tx.send(resp);
+        return Ok(());
     }
 
-    let mut session = state.session_store.create(&router_output.domain)?;
-
+    let session = state.session_store.create(&router_output.domain)?;
     let msg = crate::models::Message {
         id: uuid::Uuid::new_v4().to_string(),
         session_id: session.id.clone(),

@@ -269,8 +269,8 @@ impl App {
                         self.add_chat_message("system", "Connection lost. Reconnecting...");
                     }
                     _ => {
-                        // Unknown error — just log it without spamming chat
-                        self.connection_status = ConnectionState::Disconnected;
+                        // Show the error in chat but don't disconnect
+                        self.add_chat_message("system", &message);
                     }
                 }
             }
