@@ -401,41 +401,58 @@ pub fn initialize_engine(config: &HermesConfig) -> HermesResult<Arc<AppState>> {
 /// Call the LLM for a direct response (used when no agents match)
 fn call_llm(prompt: &str, api_key: &str, base_url: &str, model: &str) -> Result<String, String> {
     let safe_prompt = prompt.replace('"', "'").replace('\n', " ");
-    let script = format!(
+    use std::io::Write;
+
+    // Write a temporary Python script to avoid shell quoting nightmares
+    let script_content = format!(
         r#"import json, urllib.request, sys
-data = json.dumps({{\"model\":\"{model}\",\"messages\":[{{\"role\":\"user\",\"content\":sys.argv[1]}}],\"max_tokens\":512,\"temperature\":0.7}}).encode()
-req = urllib.request.Request('{base_url}/chat/completions', data=data, headers={{'Authorization':'Bearer {api_key}','Content-Type':'application/json'}})
+data = json.dumps({{
+    "model": "{model}",
+    "messages": [{{"role": "user", "content": sys.argv[1]}}],
+    "max_tokens": 512,
+    "temperature": 0.7
+}}).encode()
+req = urllib.request.Request("{base_url}/chat/completions", data=data,
+    headers={{"Authorization": "Bearer {api_key}", "Content-Type": "application/json"}})
 try:
-    resp = json.loads(urllib.request.urlopen(req,timeout=60).read())
-    text = resp['choices'][0]['message']['content']
-    print(text)
+    resp = json.loads(urllib.request.urlopen(req, timeout=60).read())
+    text = resp["choices"][0]["message"]["content"]
+    sys.stdout.write(text)
 except Exception as e:
-    print(f'Error: {{e}}')"#,
+    sys.stdout.write("LLM_CALL_FAILED: " + str(e))
+"#
     );
 
-    // On Windows, use cmd /c python; on Unix, use sh -c python
-    let output = if cfg!(target_os = "windows") {
-        std::process::Command::new("cmd")
-            .args(["/C", "python", "-c", &script, &safe_prompt])
-            .output()
-            .map_err(|e| format!("Failed to run LLM: {}", e))?
-    } else {
-        std::process::Command::new("sh")
-            .args(["-c", &format!("python -c '{}' '{}'", script, safe_prompt)])
-            .output()
-            .map_err(|e| format!("Failed to run LLM: {}", e))?
-    };
+    let script_path = std::env::temp_dir().join(format!("evagent_llm_{}.py", uuid::Uuid::new_v4()));
+    let mut f = std::fs::File::create(&script_path)
+        .map_err(|e| format!("Failed to create script: {}", e))?;
+    f.write_all(script_content.as_bytes())
+        .map_err(|e| format!("Failed to write script: {}", e))?;
+    drop(f);
+
+    let output = std::process::Command::new("python")
+        .arg(script_path.to_str().unwrap_or(""))
+        .arg(&safe_prompt)
+        .output()
+        .map_err(|e| {
+            let _ = std::fs::remove_file(&script_path);
+            format!("Failed to run python: {}", e)
+        })?;
+
+    let _ = std::fs::remove_file(&script_path);
 
     if output.status.success() {
         let text = String::from_utf8_lossy(&output.stdout).trim().to_string();
-        if text.is_empty() || text.starts_with("Error:") {
-            Err(text)
+        if text.starts_with("LLM_CALL_FAILED:") {
+            Err(text.trim_start_matches("LLM_CALL_FAILED:").trim().to_string())
+        } else if text.is_empty() {
+            Err("Empty response from LLM".to_string())
         } else {
             Ok(text)
         }
     } else {
         let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
-        Err(format!("LLM process failed: {}", stderr))
+        Err(format!("Python process exited with code {:?}: {}", output.status.code(), stderr))
     }
 }
 
