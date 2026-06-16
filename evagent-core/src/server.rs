@@ -192,8 +192,9 @@ async fn handle_dispatch(
     let api_key = std::env::var("EVAGENT_API_KEY").unwrap_or_default();
     let key_usable = api_key.len() > 20 && !api_key.contains("...");
 
-    if agents.is_empty() || !key_usable {
-        info!("[dispatch] No agents or no API key, using direct LLM/echo");
+    if key_usable {
+        // API key is set — always use direct LLM call (fast, reliable)
+        info!("[dispatch] Using direct LLM call");
         let mut session = state.session_store.create(&router_output.domain)?;
         let msg = crate::models::Message {
             id: uuid::Uuid::new_v4().to_string(),
