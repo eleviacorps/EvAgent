@@ -402,8 +402,7 @@ pub fn initialize_engine(config: &HermesConfig) -> HermesResult<Arc<AppState>> {
 fn call_llm(prompt: &str, api_key: &str, base_url: &str, model: &str) -> Result<String, String> {
     let safe_prompt = prompt.replace('"', "'").replace('\n', " ");
     let script = format!(
-        r#"python -c "
-import json, urllib.request, sys
+        r#"import json, urllib.request, sys
 data = json.dumps({{\"model\":\"{model}\",\"messages\":[{{\"role\":\"user\",\"content\":sys.argv[1]}}],\"max_tokens\":512,\"temperature\":0.7}}).encode()
 req = urllib.request.Request('{base_url}/chat/completions', data=data, headers={{'Authorization':'Bearer {api_key}','Content-Type':'application/json'}})
 try:
@@ -411,15 +410,21 @@ try:
     text = resp['choices'][0]['message']['content']
     print(text)
 except Exception as e:
-    print(f'Error: {{e}}')
-" "{}"#,
-        safe_prompt
+    print(f'Error: {{e}}')"#,
     );
 
-    let output = std::process::Command::new("sh")
-        .args(["-c", &script])
-        .output()
-        .map_err(|e| format!("Failed to run LLM: {}", e))?;
+    // On Windows, use cmd /c python; on Unix, use sh -c python
+    let output = if cfg!(target_os = "windows") {
+        std::process::Command::new("cmd")
+            .args(["/C", "python", "-c", &script, &safe_prompt])
+            .output()
+            .map_err(|e| format!("Failed to run LLM: {}", e))?
+    } else {
+        std::process::Command::new("sh")
+            .args(["-c", &format!("python -c '{}' '{}'", script, safe_prompt)])
+            .output()
+            .map_err(|e| format!("Failed to run LLM: {}", e))?
+    };
 
     if output.status.success() {
         let text = String::from_utf8_lossy(&output.stdout).trim().to_string();
