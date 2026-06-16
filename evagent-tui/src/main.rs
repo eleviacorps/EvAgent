@@ -50,7 +50,7 @@ async fn main() -> Result<()> {
 
     // Build the WebSocket URL
     let ws_url = cli.connect.unwrap_or_else(|| {
-        format!("ws://{}:{}", cli.host, cli.port)
+        format!("ws://{}:{}/ws", cli.host, cli.port)
     });
 
     // Create the WebSocket client
