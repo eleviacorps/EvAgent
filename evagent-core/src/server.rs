@@ -352,35 +352,28 @@ pub fn initialize_engine(config: &HermesConfig) -> HermesResult<Arc<AppState>> {
         tx,
     });
 
-    let agent_paths = vec![
-        std::path::PathBuf::from("domains"),
-    ];
-    state.agent_registry.register_scan_paths(&agent_paths);
-    if let Err(e) = state.agent_registry.scan_and_register() {
-        warn!("Agent scan issue: {}", e);
-    }
+    // Scan for agents and skills in background — don't block startup
+    let bg_state = state.clone();
+    tokio::spawn(async move {
+        let agent_paths = vec![
+            std::path::PathBuf::from("../domains"),
+            std::path::PathBuf::from("domains"),
+        ];
+        bg_state.agent_registry.register_scan_paths(&agent_paths);
+        if let Err(e) = bg_state.agent_registry.scan_and_register() {
+            warn!("Agent scan issue (non-fatal): {}", e);
+        }
 
-    let skill_paths = vec![
-        std::path::PathBuf::from("domains"),
-    ];
-    if let Err(e) = state.skill_loader.reload_index(&skill_paths) {
-        warn!("Skill load issue: {}", e);
-    }
+        let skill_paths = vec![
+            std::path::PathBuf::from("../domains"),
+            std::path::PathBuf::from("domains"),
+        ];
+        if let Err(e) = bg_state.skill_loader.reload_index(&skill_paths) {
+            warn!("Skill load issue (non-fatal): {}", e);
+        }
+    });
 
-    info!(
-        "Engine initialized: agents={}, skills={}, domains={}",
-        state
-            .agent_registry
-            .list(None)
-            .map(|a| a.len())
-            .unwrap_or(0),
-        state
-            .skill_loader
-            .list(None)
-            .map(|s| s.len())
-            .unwrap_or(0),
-        state.intent_router.get_domains().len(),
-    );
+    info!("Engine initialized, server ready to accept connections");
 
     Ok(state)
 }
