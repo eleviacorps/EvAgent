@@ -21,8 +21,8 @@ taskkill /F /IM evagent-core.exe >nul 2>&1
 echo [EvAgent] Starting core engine on port %PORT%...
 echo [EvAgent] Proxy settings: HTTP_PROXY=%HTTP_PROXY% HTTPS_PROXY=%HTTPS_PROXY%
 
-REM Start core in background (inherits proxy env vars from this shell)
-start /B "" "%COREDIR%\target\debug\evagent-core.exe" start --port %PORT% > "%TEMP%\evagent-core.log" 2>&1
+REM Build and start core (compiles fresh, inherits proxy env vars)
+start /B "" cmd /c "cd /d %COREDIR% && cargo run -- start --port %PORT%" > "%TEMP%\evagent-core.log" 2>&1
 
 REM Wait for core to be ready (poll port)
 echo [EvAgent] Waiting for core to start...

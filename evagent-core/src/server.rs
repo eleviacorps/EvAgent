@@ -190,7 +190,7 @@ async fn handle_dispatch(
 
     let agents = state.agent_registry.list(Some(&router_output.domain))?;
     if agents.is_empty() {
-        // No agents for this domain — echo a friendly response
+        // No agents for this domain — chat directly with the LLM
         let mut session = state.session_store.create(&router_output.domain)?;
         let msg = crate::models::Message {
             id: uuid::Uuid::new_v4().to_string(),
@@ -202,15 +202,22 @@ async fn handle_dispatch(
         };
         state.session_store.append_message(&session.id, msg)?;
 
-        let echo = format!(
-            "[{}] Received your message. No specialized agents for domain '{}' — registering now.",
-            chrono::Utc::now().format("%H:%M:%S"),
-            router_output.domain
-        );
+        let api_key = std::env::var("EVAGENT_API_KEY").unwrap_or_default();
+        let result = if !api_key.is_empty() && !api_key.starts_with("sk-VXvH") {
+            // Call the LLM for a real response
+            let base_url = std::env::var("EVAGENT_BASE_URL")
+                .unwrap_or_else(|_| "https://opencode.ai/zen/v1".to_string());
+            let model = std::env::var("EVAGENT_MODEL")
+                .unwrap_or_else(|_| "deepseek-v4-flash-free".to_string());
+            call_llm(prompt, &api_key, &base_url, &model).unwrap_or_else(|e| format!("LLM error: {}", e))
+        } else {
+            format!("[{}] Received: \"{}\"", chrono::Utc::now().format("%H:%M:%S"), prompt)
+        };
+
         let resp = serde_json::to_string(&WsServerMessage::DispatchResult {
             session_id: session.id,
             outputs: vec![],
-            aggregated: Some(echo),
+            aggregated: Some(result),
         }).map_err(|e| HermesError::websocket_with("Serialize error", e))?;
         let _ = state.tx.send(resp);
         return Ok(());
@@ -380,6 +387,42 @@ pub fn initialize_engine(config: &HermesConfig) -> HermesResult<Arc<AppState>> {
 
     info!("[init] DONE — returning Ok(state)");
     Ok(state)
+}
+
+/// Call the LLM for a direct response (used when no agents match)
+fn call_llm(prompt: &str, api_key: &str, base_url: &str, model: &str) -> Result<String, String> {
+    let safe_prompt = prompt.replace('"', "'").replace('\n', " ");
+    let script = format!(
+        r#"python -c "
+import json, urllib.request, sys
+data = json.dumps({{\"model\":\"{model}\",\"messages\":[{{\"role\":\"user\",\"content\":sys.argv[1]}}],\"max_tokens\":512,\"temperature\":0.7}}).encode()
+req = urllib.request.Request('{base_url}/chat/completions', data=data, headers={{'Authorization':'Bearer {api_key}','Content-Type':'application/json'}})
+try:
+    resp = json.loads(urllib.request.urlopen(req,timeout=60).read())
+    text = resp['choices'][0]['message']['content']
+    print(text)
+except Exception as e:
+    print(f'Error: {{e}}')
+" "{}"#,
+        safe_prompt
+    );
+
+    let output = std::process::Command::new("sh")
+        .args(["-c", &script])
+        .output()
+        .map_err(|e| format!("Failed to run LLM: {}", e))?;
+
+    if output.status.success() {
+        let text = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        if text.is_empty() || text.starts_with("Error:") {
+            Err(text)
+        } else {
+            Ok(text)
+        }
+    } else {
+        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        Err(format!("LLM process failed: {}", stderr))
+    }
 }
 
 fn register_default_domains(router: &IntentRouter) -> HermesResult<()> {
