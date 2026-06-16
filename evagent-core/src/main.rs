@@ -107,6 +107,10 @@ async fn main() -> HermesResult<()> {
 
 /// `start` subcommand: initialize stores, start WebSocket server.
 async fn cmd_start(config_path: Option<String>, port_override: Option<u16>) -> HermesResult<()> {
+    // Load .env file if present
+    let _ = dotenvy::from_path_override("../.env");
+    let _ = dotenvy::from_path_override(".env");
+
     let mut config = config::load_config(config_path.as_deref())?;
 
     // Override port if provided on CLI

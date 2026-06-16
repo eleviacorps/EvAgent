@@ -292,19 +292,38 @@ impl Dispatcher {
     }
 
     /// Resolve the agent script path for a given domain.
+    /// If EVAGENT_API_KEY is set, calls the LLM for a real response.
+    /// Otherwise falls back to echo-based mock.
     fn resolve_agent_script(&self, domain: &str) -> String {
-        // First, check if we have an agent binary configured
-        // In dev mode, we use a simple echo-based response generator
-        // Format: a script that takes JSON task as argument and returns JSON response
-        if cfg!(target_os = "windows") {
-            format!(
-                "echo {{\\\"status\\\":\\\"completed\\\",\\\"result\\\":\\\"Processed task for domain '{}'\\\",\\\"tokens_used\\\":100,\\\"errors\\\":[]}}",
-                domain
-            )
+        let api_key = std::env::var("EVAGENT_API_KEY").unwrap_or_default();
+        let base_url = std::env::var("EVAGENT_BASE_URL")
+            .unwrap_or_else(|_| "https://opencode.ai/zen/v1".to_string());
+        let model = std::env::var("EVAGENT_MODEL")
+            .unwrap_or_else(|_| "deepseek-v4-flash-free".to_string());
+
+        if api_key.is_empty() || api_key.starts_with("sk-VXvH") {
+            // No real key — use mock
+            if cfg!(target_os = "windows") {
+                format!(
+                    "echo {{\\\"status\\\":\\\"completed\\\",\\\"result\\\":\\\"Processed task for domain '{}'\\\",\\\"tokens_used\\\":100,\\\"errors\\\":[]}}",
+                    domain
+                )
+            } else {
+                format!(
+                    "echo '{{\"status\":\"completed\",\"result\":\"Processed task for domain \\'{}\\'\",\"tokens_used\":100,\"errors\":[]}}'",
+                    domain
+                )
+            }
         } else {
+            // Real LLM call — use a Python one-liner
             format!(
-                "echo '{{\"status\":\"completed\",\"result\":\"Processed task for domain \\'{}\\'\",\"tokens_used\":100,\"errors\":[]}}'",
-                domain
+                r#"python -c "
+import json, urllib.request, sys
+data = json.dumps({{\"model\":\"{model}\",\"messages\":[{{\"role\":\"user\",\"content\":sys.argv[1]}}],\"max_tokens\":512}}).encode()
+req = urllib.request.Request('{base_url}/chat/completions', data=data, headers={{'Authorization':'Bearer {api_key}','Content-Type':'application/json'}})
+resp = json.loads(urllib.request.urlopen(req,timeout=30).read())
+print(json.dumps({{\"status\":\"completed\",\"result\":resp['choices'][0]['message']['content'],\"tokens_used\":resp.get('usage',{{}}).get('total_tokens',0),\"errors\":[]}}))
+" "Sub-agent for domain: {domain}""#
             )
         }
     }

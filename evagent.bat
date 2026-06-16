@@ -1,5 +1,6 @@
 @echo off
 REM EvAgent — One-command launcher for core + TUI
+REM Works with proxyman: run "proxyon hermes1" BEFORE this script
 REM Usage: evagent [--port PORT]
 
 setlocal enabledelayedexpansion
@@ -18,9 +19,12 @@ REM Kill any stale core process
 taskkill /F /IM evagent-core.exe >nul 2>&1
 
 echo [EvAgent] Starting core engine on port %PORT%...
-start "EvAgent Core" cmd /c "cd /d %COREDIR% && cargo run -- start --port %PORT%"
+echo [EvAgent] Proxy settings: HTTP_PROXY=%HTTP_PROXY% HTTPS_PROXY=%HTTPS_PROXY%
 
-REM Wait for core to be ready
+REM Start core in background (inherits proxy env vars from this shell)
+start /B "" "%COREDIR%\target\debug\evagent-core.exe" start --port %PORT% > "%TEMP%\evagent-core.log" 2>&1
+
+REM Wait for core to be ready (poll port)
 echo [EvAgent] Waiting for core to start...
 :waitloop
 timeout /t 2 /nobreak >nul
