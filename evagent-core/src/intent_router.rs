@@ -122,28 +122,30 @@ impl IntentRouter {
 
     /// Register a domain with its patterns and available agents.
     pub fn register_domain(&self, domain: RegisteredDomain) -> HermesResult<()> {
-        let mut domains = self.domains.write();
-        // Check for duplicate
-        if domains.iter().any(|d| d.name == domain.name) {
-            return Err(HermesError::router(format!(
-                "Domain '{}' is already registered",
-                domain.name
-            )));
-        }
-
+        // Check for duplicate while holding write lock
+        let dup;
         let patterns = domain.patterns.clone();
         let name = domain.name.clone();
-
-        domains.push(domain);
+        {
+            let mut domains = self.domains.write();
+            dup = domains.iter().any(|d| d.name == domain.name);
+            if !dup {
+                domains.push(domain);
+            }
+        }
+        if dup {
+            return Err(HermesError::router(format!(
+                "Domain '{}' is already registered", name
+            )));
+        }
 
         // Update domain_patterns map
         let mut dp = self.domain_patterns.write();
         dp.insert(name.clone(), patterns.clone());
+        drop(dp);
 
-        // Rebuild regex set
+        // Rebuild regex set and intent vectors (no locks held)
         self.rebuild_regex_set()?;
-
-        // Rebuild intent vectors
         self.rebuild_intent_vectors();
 
         debug!(
