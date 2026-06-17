@@ -1,34 +1,31 @@
+//! Application state — cleaned and redesigned.
+//! Removed: timeline_events, tool_calls, file_activities, token_limit, agent_tree.
+//! Added: lifecycle_phase, mission_text.
+
 #![allow(dead_code)]
+
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
 use ratatui::style::Color;
 use tokio::sync::mpsc;
 
-use crate::extract::{extract_file_activity, extract_tool_call, parse_progress};
+use crate::extract::{extract_diff_summary, extract_tool_info, parse_progress};
 use crate::types::*;
 
 /// Maximum number of chat messages to keep.
 const MAX_CHAT_HISTORY: usize = 200;
 /// Maximum number of agent status cards to show.
-const MAX_AGENT_DISPLAY: usize = 12;
-/// Maximum timeline events to retain.
-const MAX_TIMELINE: usize = 100;
-/// Maximum tool calls to retain.
-const MAX_TOOL_CALLS: usize = 50;
-/// Maximum file activities to retain.
-const MAX_FILE_ACTIVITIES: usize = 50;
-/// Default token limit for the context window.
-const DEFAULT_TOKEN_LIMIT: u64 = 8000;
+const MAX_AGENT_DISPLAY: usize = 20;
 
 /// Main application state.
 pub struct App {
-    /// Current domain
+    /// Current domain (e.g. "general", "coding")
     pub domain: String,
     /// Recent session info
     pub sessions: Vec<SessionInfo>,
-    /// Currently tracked agent statuses
+    /// Currently tracked agent statuses (used for card rendering)
     pub active_agents: Vec<AgentStatus>,
-    /// Chat conversation history
+    /// Chat conversation history (user + system + agent cards)
     pub chat_messages: Vec<ChatMessage>,
     /// Current user text input buffer
     pub input: String,
@@ -52,33 +49,27 @@ pub struct App {
     pub initialized: bool,
     /// Track if connection failure message has been shown
     pub connection_fail_shown: bool,
-
-    // ─── Neo-Terminal Command Center Fields ───
-    /// Execution timeline events
-    pub timeline_events: Vec<TimelineEvent>,
-    /// Tracked tool calls
-    pub tool_calls: Vec<ToolCall>,
-    /// Tracked file activities
-    pub file_activities: Vec<FileActivity>,
+    /// Current lifecycle phase
+    pub lifecycle_phase: LifecyclePhase,
+    /// Current mission description
+    pub mission_text: String,
     /// When the current session started
     pub session_start_time: Option<Instant>,
     /// Current session runtime
     pub runtime: Duration,
-    /// Token limit for usage bars
-    pub token_limit: u64,
 }
 
 impl Default for App {
     fn default() -> Self {
         let mut domain_colors = HashMap::new();
-        domain_colors.insert("coding".into(), Color::Blue);
-        domain_colors.insert("research".into(), Color::Green);
-        domain_colors.insert("writing".into(), Color::Yellow);
-        domain_colors.insert("trading".into(), Color::Magenta);
-        domain_colors.insert("study".into(), Color::Cyan);
-        domain_colors.insert("communication".into(), Color::LightMagenta);
-        domain_colors.insert("media".into(), Color::Red);
-        domain_colors.insert("general".into(), Color::White);
+        domain_colors.insert("coding".into(), Color::Rgb(79, 195, 247));
+        domain_colors.insert("research".into(), Color::Rgb(74, 222, 128));
+        domain_colors.insert("writing".into(), Color::Rgb(251, 191, 36));
+        domain_colors.insert("trading".into(), Color::Rgb(239, 68, 68));
+        domain_colors.insert("study".into(), Color::Rgb(79, 195, 247));
+        domain_colors.insert("communication".into(), Color::Rgb(127, 136, 150));
+        domain_colors.insert("media".into(), Color::Rgb(239, 68, 68));
+        domain_colors.insert("general".into(), Color::Rgb(215, 220, 229));
 
         Self {
             domain: String::from("general"),
@@ -96,12 +87,10 @@ impl Default for App {
             available_skills: Vec::new(),
             initialized: false,
             connection_fail_shown: false,
-            timeline_events: Vec::new(),
-            tool_calls: Vec::new(),
-            file_activities: Vec::new(),
+            lifecycle_phase: LifecyclePhase::Thinking,
+            mission_text: String::from("Awaiting your prompt..."),
             session_start_time: None,
             runtime: Duration::ZERO,
-            token_limit: DEFAULT_TOKEN_LIMIT,
         }
     }
 }
@@ -129,27 +118,46 @@ impl App {
                 let progress_val = parse_progress(&progress);
                 let agent_state = AgentState::from_str(&status);
 
-                // Find existing or add new
+                // Extract tool info and diff from progress text
+                let tool_info = extract_tool_info(&progress);
+                let diff = extract_diff_summary(&progress);
+
+                // Find existing agent or add new one
                 if let Some(existing) = self
                     .active_agents
                     .iter_mut()
-                    .find(|a| a.task_id == task_id || (a.agent_name == agent_name && a.status == AgentState::Running))
+                    .find(|a| a.task_id == task_id
+                        || (a.agent_name == agent_name && a.status == AgentState::Running))
                 {
                     existing.status = agent_state.clone();
                     existing.progress = progress_val;
                     existing.progress_text = progress.clone();
                     existing.tokens_used = tokens_used;
                     existing.wall_clock_ms = wall_clock_ms;
+                    // Add tool if new
+                    if let Some(ti) = tool_info {
+                        if !existing.tools_used.iter().any(|t| t.name == ti.name && t.target == ti.target) {
+                            existing.tools_used.push(ti);
+                        }
+                    }
+                    if !diff.is_empty() {
+                        existing.diff_summary = diff.clone();
+                    }
                 } else {
-                    let progress_clone = progress.clone();
+                    let mut tools = Vec::new();
+                    if let Some(ti) = tool_info {
+                        tools.push(ti);
+                    }
                     self.active_agents.push(AgentStatus {
                         task_id,
                         agent_name: agent_name.clone(),
                         status: agent_state.clone(),
                         progress: progress_val,
-                        progress_text: progress_clone,
+                        progress_text: progress.clone(),
                         tokens_used,
                         wall_clock_ms,
+                        tools_used: tools,
+                        diff_summary: diff,
                     });
                 }
 
@@ -167,11 +175,11 @@ impl App {
                 self.stats.total_agents = self.active_agents.len();
 
                 // Limit displayed agents
-                let running_ids: Vec<String> = self.active_agents.iter()
-                    .filter(|a| a.status == AgentState::Running)
-                    .map(|a| a.task_id.clone())
-                    .collect();
                 if self.active_agents.len() > MAX_AGENT_DISPLAY {
+                    let running_ids: Vec<String> = self.active_agents.iter()
+                        .filter(|a| a.status == AgentState::Running)
+                        .map(|a| a.task_id.clone())
+                        .collect();
                     self.active_agents.retain(|a| {
                         a.status == AgentState::Running || running_ids.contains(&a.task_id)
                     });
@@ -182,55 +190,59 @@ impl App {
                     self.session_start_time = Some(Instant::now());
                 }
 
-                // ─── Add timeline event ───
-                let now = chrono::Local::now();
-                let timestamp = now.format("%H:%M:%S").to_string();
-                let ts = timestamp.clone();
-                self.timeline_events.push(TimelineEvent {
-                    timestamp: ts,
-                    agent_name: agent_name.clone(),
-                    action: progress.clone(),
-                    duration_ms: wall_clock_ms,
-                    status: agent_state.clone(),
-                    details: Vec::new(),
-                });
-                while self.timeline_events.len() > MAX_TIMELINE {
-                    self.timeline_events.remove(0);
-                }
+                // Auto-detect lifecycle phase from running agents
+                self.detect_lifecycle_phase();
 
-                // ─── Try to extract tool call ───
-                if let Some(tc) = extract_tool_call(&agent_name, &progress, &timestamp, wall_clock_ms) {
-                    self.tool_calls.push(tc);
-                    while self.tool_calls.len() > MAX_TOOL_CALLS {
-                        self.tool_calls.remove(0);
+                // Add/update chat message for this agent's activity
+                // Only add card if status changed
+                let should_add_card = match agent_state {
+                    AgentState::Completed => {
+                        self.add_chat_message(
+                            "system",
+                            &format!("✅ Agent **{}** completed — {} tokens in {}ms",
+                                agent_name, tokens_used, wall_clock_ms),
+                        );
+                        true
                     }
-                }
-
-                // ─── Try to extract file activity ───
-                if let Some(fa) = extract_file_activity(&progress, &timestamp) {
-                    self.file_activities.push(fa);
-                    while self.file_activities.len() > MAX_FILE_ACTIVITIES {
-                        self.file_activities.remove(0);
+                    AgentState::Failed => {
+                        self.add_chat_message(
+                            "system",
+                            &format!("❌ Agent **{}** failed: {}", agent_name, progress),
+                        );
+                        true
                     }
-                }
+                    AgentState::Timeout => {
+                        self.add_chat_message(
+                            "system",
+                            &format!("⏱️ Agent **{}** timed out", agent_name),
+                        );
+                        true
+                    }
+                    AgentState::Running => {
+                        // Add/update running card
+                        self.update_agent_card(&agent_name, &progress, progress_val);
+                        false
+                    }
+                    AgentState::Idle => false,
+                };
 
-                // Add chat messages for completion/failure
-                if agent_state == AgentState::Completed {
-                    self.add_chat_message(
-                        "system",
-                        &format!("✅ Agent **{}** completed — {} tokens in {}ms",
-                            agent_name, tokens_used, wall_clock_ms),
-                    );
-                } else if agent_state == AgentState::Failed {
-                    self.add_chat_message(
-                        "system",
-                        &format!("❌ Agent **{}** failed: {}", agent_name, progress),
-                    );
-                } else if agent_state == AgentState::Timeout {
-                    self.add_chat_message(
-                        "system",
-                        &format!("⏱️ Agent **{}** timed out", agent_name),
-                    );
+                if should_add_card {
+                    // Find the agent and add a final card
+                    if let Some(agent) = self.active_agents.iter()
+                        .find(|a| a.agent_name == agent_name)
+                    {
+                        self.chat_messages.push(ChatMessage::agent_card(
+                            &agent.agent_name,
+                            &agent.progress_text,
+                            agent.progress,
+                            agent.tools_used.clone(),
+                            agent.diff_summary.clone(),
+                        ));
+                        while self.chat_messages.len() > MAX_CHAT_HISTORY {
+                            self.chat_messages.remove(0);
+                        }
+                        self.scroll_chat = true;
+                    }
                 }
             }
             WsServerMessage::DispatchResult {
@@ -254,6 +266,7 @@ impl App {
                     }
                 }
                 self.stats.completed_agents = self.stats.total_agents;
+                self.lifecycle_phase = LifecyclePhase::Merging;
             }
             WsServerMessage::SessionUpdate { session } => {
                 if let Some(_id) = session.get("id").and_then(|v| v.as_str()) {
@@ -329,29 +342,91 @@ impl App {
         }
     }
 
-    /// Build the agent tree hierarchy from active_agents.
-    /// Agents with dot-separated names (e.g. "planner.architect.code")
-    /// are arranged as a tree; flat names become root nodes.
-    pub fn get_agent_tree(&self) -> Vec<AgentTreeNode> {
-        let mut nodes: Vec<AgentTreeNode> = Vec::new();
+    /// Auto-detect the current lifecycle phase from running agents.
+    fn detect_lifecycle_phase(&mut self) {
+        let running = self.active_agents.iter()
+            .filter(|a| a.status == AgentState::Running)
+            .collect::<Vec<_>>();
 
-        // Sort for deterministic output
-        let mut sorted: Vec<&AgentStatus> = self.active_agents.iter().collect();
-        sorted.sort_by(|a, b| a.agent_name.cmp(&b.agent_name));
-
-        for agent in &sorted {
-            let parts: Vec<&str> = agent.agent_name.split('.').collect();
-            let node_name = parts.last().unwrap_or(&"").to_string();
-            let level = parts.len().saturating_sub(1);
-
-            nodes.push(AgentTreeNode {
-                name: node_name,
-                level,
-                status: agent.status.clone(),
-            });
+        if running.is_empty() {
+            // Look at completed agents to determine phase
+            let completed_count = self.active_agents.iter()
+                .filter(|a| matches!(a.status, AgentState::Completed)).count();
+            if completed_count > 0 && completed_count == self.active_agents.len() {
+                self.lifecycle_phase = LifecyclePhase::Verifying;
+            } else if self.active_agents.is_empty() {
+                self.lifecycle_phase = LifecyclePhase::Thinking;
+            }
+            return;
         }
 
-        nodes
+        // Check based on agent names
+        for agent in &running {
+            let name_lower = agent.agent_name.to_lowercase();
+            if name_lower.contains("think") || name_lower.contains("analyze") {
+                self.lifecycle_phase = LifecyclePhase::Thinking;
+                return;
+            }
+            if name_lower.contains("plan") || name_lower.contains("architect") || name_lower.contains("design") {
+                self.lifecycle_phase = LifecyclePhase::Planning;
+                return;
+            }
+            if name_lower.contains("code") || name_lower.contains("write") || name_lower.contains("implement") {
+                self.lifecycle_phase = LifecyclePhase::Executing;
+                return;
+            }
+            if name_lower.contains("verif") || name_lower.contains("test") || name_lower.contains("review") {
+                self.lifecycle_phase = LifecyclePhase::Verifying;
+                return;
+            }
+            if name_lower.contains("merge") || name_lower.contains("deploy") || name_lower.contains("release") {
+                self.lifecycle_phase = LifecyclePhase::Merging;
+                return;
+            }
+        }
+
+        self.lifecycle_phase = LifecyclePhase::Executing;
+    }
+
+    /// Update an existing agent card in the chat, or add a new one.
+    fn update_agent_card(&mut self, agent_name: &str, progress_text: &str, progress_val: f32) {
+        // Find the most recent message for this agent and update it
+        if let Some(msg) = self.chat_messages.iter_mut()
+            .rev()
+            .find(|m| m.agent_name.as_deref() == Some(agent_name))
+        {
+            msg.content = progress_text.to_string();
+            msg.agent_progress = Some(progress_val);
+            // Update tools from the active_agents record
+            if let Some(agent) = self.active_agents.iter()
+                .find(|a| a.agent_name == agent_name)
+            {
+                msg.agent_tools = agent.tools_used.clone();
+                msg.agent_diff = agent.diff_summary.clone();
+            }
+        } else {
+            // Add a new card
+            let tools = self.active_agents.iter()
+                .find(|a| a.agent_name == agent_name)
+                .map(|a| a.tools_used.clone())
+                .unwrap_or_default();
+            let diff = self.active_agents.iter()
+                .find(|a| a.agent_name == agent_name)
+                .map(|a| a.diff_summary.clone())
+                .unwrap_or_default();
+
+            self.chat_messages.push(ChatMessage::agent_card(
+                agent_name,
+                progress_text,
+                progress_val,
+                tools,
+                diff,
+            ));
+            while self.chat_messages.len() > MAX_CHAT_HISTORY {
+                self.chat_messages.remove(0);
+            }
+        }
+        self.scroll_chat = true;
     }
 
     /// Add a message to the chat history.
@@ -371,6 +446,11 @@ impl App {
         }
 
         self.add_chat_message("user", &prompt);
+        self.mission_text = prompt.clone();
+        self.lifecycle_phase = LifecyclePhase::Thinking;
+
+        // Clear previous agents when dispatching a new task
+        self.active_agents.clear();
 
         let msg = serde_json::json!({
             "type": "DispatchTask",

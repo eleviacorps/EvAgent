@@ -1,46 +1,50 @@
-//! Left column: Agent Tree + Token Usage + Session Stats.
+//! Left column: Mission + Active Agents + Agent Lifecycle Rail.
+//! No gauges, no token usage, no cost display.
 
 use ratatui::{
     layout::{Constraint, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span, Text},
-    widgets::{Block, Borders, Gauge, Paragraph, Wrap},
+    widgets::{Block, Borders, Paragraph, Wrap},
     Frame,
 };
 
 use crate::app::App;
-use crate::types::{AgentState, fmt_tokens, fmt_tokens_exact};
+use crate::types::{AgentState, LifecyclePhase};
 
 // ── Color Palette ──
-const BG_DEEP: Color = Color::Rgb(0, 0, 0);
-const BG_NAVY: Color = Color::Rgb(5, 7, 19);
-const BORDER: Color = Color::Rgb(37, 44, 82);
-const TEXT_PRIMARY: Color = Color::Rgb(201, 209, 255);
-const TEXT_SECONDARY: Color = Color::Rgb(166, 175, 216);
-const TEXT_MUTED: Color = Color::Rgb(126, 136, 181);
-const PURPLE: Color = Color::Rgb(197, 111, 255);
-const PURPLE_DIM: Color = Color::Rgb(180, 94, 255);
-const CYAN: Color = Color::Rgb(57, 216, 255);
-const GREEN: Color = Color::Rgb(60, 229, 154);
-const RED: Color = Color::Rgb(255, 90, 110);
+const BG_DEEP: Color = Color::Rgb(9, 11, 17);
+const BORDER: Color = Color::Rgb(35, 42, 54);
+const TEXT_PRIMARY: Color = Color::Rgb(215, 220, 229);
+const TEXT_MUTED: Color = Color::Rgb(127, 136, 150);
+const CYAN: Color = Color::Rgb(79, 195, 247);
+const GREEN: Color = Color::Rgb(74, 222, 128);
+const AMBER: Color = Color::Rgb(251, 191, 36);
+const RED: Color = Color::Rgb(239, 68, 68);
 
 pub fn draw_left(f: &mut Frame, area: Rect, app: &App) {
-    // Vertical split: Agent tree (top 60%) | Token usage (bottom 40%)
     let chunks = Layout::vertical([
-        Constraint::Percentage(60),
-        Constraint::Percentage(40),
+        Constraint::Min(3),    // Mission (flex, min 3)
+        Constraint::Length(1), // separator
+        Constraint::Min(4),    // Active Agents (flex, min 4)
+        Constraint::Length(1), // separator
+        Constraint::Length(4), // Lifecycle Rail (fixed 4)
     ])
     .split(area);
 
-    draw_agent_tree(f, chunks[0], app);
-    draw_token_usage(f, chunks[1], app);
+    draw_mission(f, chunks[0], app);
+    draw_active_agents(f, chunks[2], app);
+    draw_lifecycle_rail(f, chunks[4], app);
 }
 
-// ── Agent Tree Panel ──
+// ── Mission Panel ──
 
-fn draw_agent_tree(f: &mut Frame, area: Rect, app: &App) {
+fn draw_mission(f: &mut Frame, area: Rect, app: &App) {
     let block = Block::default()
-        .title(Span::styled(" Agents ", Style::default().fg(PURPLE).add_modifier(Modifier::BOLD)))
+        .title(Span::styled(
+            " Mission ",
+            Style::default().fg(CYAN).add_modifier(Modifier::BOLD),
+        ))
         .borders(Borders::ALL)
         .border_style(Style::default().fg(BORDER))
         .style(Style::default().bg(BG_DEEP));
@@ -48,92 +52,112 @@ fn draw_agent_tree(f: &mut Frame, area: Rect, app: &App) {
     let inner = block.inner(area);
     f.render_widget(block, area);
 
-    let tree_nodes = app.get_agent_tree();
+    let mission_text = if app.mission_text.is_empty() {
+        "Awaiting your prompt..."
+    } else {
+        &app.mission_text
+    };
 
-    if tree_nodes.is_empty() {
-        let msg = Paragraph::new(Text::from(Line::from(Span::styled(
-            " No agents active",
-            Style::default().fg(TEXT_MUTED).add_modifier(Modifier::ITALIC),
-        ))))
+    // Truncate to fit
+    let max_w = inner.width.saturating_sub(2) as usize;
+    let display = if mission_text.len() > max_w && max_w > 5 {
+        format!("{}…", &mission_text[..max_w.saturating_sub(1)])
+    } else {
+        mission_text.to_string()
+    };
+
+    let para = Paragraph::new(Text::from(Line::from(Span::styled(
+        display,
+        Style::default().fg(TEXT_PRIMARY),
+    ))))
+    .style(Style::default().bg(BG_DEEP))
+    .wrap(Wrap { trim: false });
+
+    let text_area = Rect {
+        x: inner.x + 1,
+        y: inner.y + 1,
+        width: inner.width.saturating_sub(2),
+        height: inner.height.saturating_sub(2).max(1),
+    };
+    f.render_widget(para, text_area);
+}
+
+// ── Active Agents Panel ──
+
+fn draw_active_agents(f: &mut Frame, area: Rect, app: &App) {
+    let block = Block::default()
+        .title(Span::styled(
+            " Active Agents ",
+            Style::default().fg(CYAN).add_modifier(Modifier::BOLD),
+        ))
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(BORDER))
         .style(Style::default().bg(BG_DEEP));
-        f.render_widget(msg, inner);
-        return;
-    }
+
+    let inner = block.inner(area);
+    f.render_widget(block, area);
 
     let mut lines: Vec<Line> = Vec::new();
-    let mut prev_level = 0usize;
-    let mut stack: Vec<bool> = Vec::new(); // track which levels have more siblings
 
-    for (i, node) in tree_nodes.iter().enumerate() {
-        // Determine if this node has a sibling after it at the same level
-        let has_sibling = tree_nodes[i + 1..]
-            .iter()
-            .take_while(|n| n.level > node.level)
-            .chain(tree_nodes[i + 1..].iter().take(1))
-            .any(|n| n.level == node.level);
+    if app.active_agents.is_empty() {
+        lines.push(Line::from(Span::styled(
+            " No active agents",
+            Style::default()
+                .fg(TEXT_MUTED)
+                .add_modifier(Modifier::ITALIC),
+        )));
+    } else {
+        for agent in &app.active_agents {
+            let (indicator, color) = match agent.status {
+                AgentState::Running => ("●", CYAN),
+                AgentState::Completed => ("✓", GREEN),
+                AgentState::Failed => ("●", RED),
+                AgentState::Timeout => ("●", AMBER),
+                AgentState::Idle => ("○", TEXT_MUTED),
+            };
 
-        // Build the connector prefix
-        let mut indent = String::new();
+            let name_display = agent
+                .agent_name
+                .split('.')
+                .last()
+                .unwrap_or(&agent.agent_name);
 
-        // Level 0: no indent
-        if node.level == 0 {
-            // Root node
-        } else {
-            // Build indentation for each level
-            for l in 0..node.level {
-                if l < stack.len() {
-                    if stack[l] {
-                        indent.push_str("│   ");
-                    } else {
-                        indent.push_str("    ");
-                    }
-                }
+            let status_text = match agent.status {
+                AgentState::Running => "running",
+                AgentState::Completed => "complete",
+                AgentState::Failed => "failed",
+                AgentState::Timeout => "timeout",
+                AgentState::Idle => "idle",
+            };
+
+            lines.push(Line::from(vec![
+                Span::styled(
+                    format!(" {} ", indicator),
+                    Style::default().fg(color).add_modifier(Modifier::BOLD),
+                ),
+                Span::styled(
+                    name_display.to_string(),
+                    Style::default().fg(TEXT_PRIMARY),
+                ),
+                Span::styled(
+                    format!(" ({})", status_text),
+                    Style::default().fg(TEXT_MUTED),
+                ),
+            ]));
+
+            // Add progress text if available and not empty
+            if !agent.progress_text.is_empty() && agent.progress_text != name_display {
+                let progress_display = if agent.progress_text.len() > 30 {
+                    format!("{}…", &agent.progress_text[..27])
+                } else {
+                    agent.progress_text.clone()
+                };
+                lines.push(Line::from(vec![
+                    Span::raw("   "),
+                    Span::styled(progress_display, Style::default().fg(TEXT_MUTED)),
+                ]));
             }
-
-            // Connector
-            if has_sibling {
-                indent.push_str("├── ");
-            } else {
-                indent.push_str("└── ");
-            }
         }
-
-        // Update stack for this level
-        while stack.len() <= node.level {
-            stack.push(false);
-        }
-        // If level went down, mark previous level as having more siblings
-        if i > 0 && node.level <= prev_level {
-            if let Some(val) = stack.get_mut(node.level) {
-                *val = true;
-            }
-        }
-        // Mark current level's sibling status
-        if node.level < stack.len() {
-            stack[node.level] = has_sibling;
-        }
-
-        prev_level = node.level;
-
-        let status_indicator = match node.status {
-            AgentState::Completed => ("●", GREEN),
-            AgentState::Running => ("▶", CYAN),
-            AgentState::Failed => ("●", RED),
-            AgentState::Timeout => ("●", RED),
-            AgentState::Idle => ("○", TEXT_MUTED),
-        };
-
-        let line = Line::from(vec![
-            Span::styled(indent, Style::default().fg(BORDER)),
-            Span::styled(node.name.clone(), Style::default().fg(TEXT_PRIMARY)),
-            Span::raw(" "),
-            Span::styled(
-                status_indicator.0,
-                Style::default().fg(status_indicator.1).add_modifier(Modifier::BOLD),
-            ),
-        ]);
-
-        lines.push(line);
     }
 
     let para = Paragraph::new(Text::from(lines))
@@ -142,11 +166,14 @@ fn draw_agent_tree(f: &mut Frame, area: Rect, app: &App) {
     f.render_widget(para, inner);
 }
 
-// ── Token Usage Panel ──
+// ── Agent Lifecycle Rail ──
 
-fn draw_token_usage(f: &mut Frame, area: Rect, app: &App) {
+fn draw_lifecycle_rail(f: &mut Frame, area: Rect, app: &App) {
     let block = Block::default()
-        .title(Span::styled(" Resources ", Style::default().fg(PURPLE).add_modifier(Modifier::BOLD)))
+        .title(Span::styled(
+            " Lifecycle ",
+            Style::default().fg(CYAN).add_modifier(Modifier::BOLD),
+        ))
         .borders(Borders::ALL)
         .border_style(Style::default().fg(BORDER))
         .style(Style::default().bg(BG_DEEP));
@@ -154,115 +181,53 @@ fn draw_token_usage(f: &mut Frame, area: Rect, app: &App) {
     let inner = block.inner(area);
     f.render_widget(block, area);
 
-    // Tokens gauge
-    let tokens_pct = if app.token_limit > 0 {
-        ((app.stats.total_tokens as f64 / app.token_limit as f64) * 100.0) as u16
-    } else {
-        0
-    };
+    let phases = LifecyclePhase::all();
+    let current_phase = &app.lifecycle_phase;
+    let current_idx = current_phase.index();
 
-    let token_label = format!(
-        " {} / {} ",
-        fmt_tokens_exact(app.stats.total_tokens),
-        fmt_tokens_exact(app.token_limit)
-    );
+    let max_w = inner.width.saturating_sub(2) as usize;
+    let mut spans: Vec<Span> = Vec::new();
 
-    let gauge_tokens = Gauge::default()
-        .gauge_style(
-            Style::default()
-                .fg(PURPLE)
-                .bg(BG_NAVY),
-        )
-        .percent(tokens_pct.min(100))
-        .label(Span::styled(token_label, Style::default().fg(TEXT_PRIMARY)));
-    f.render_widget(gauge_tokens, Rect {
-        x: inner.x + 1,
-        y: inner.y + 1,
-        width: inner.width.saturating_sub(2),
-        height: 1,
-    });
+    for (i, phase) in phases.iter().enumerate() {
+        let (indicator, color) = if i < current_idx {
+            ("✓", GREEN)
+        } else if i == current_idx {
+            ("●", CYAN)
+        } else {
+            ("○", TEXT_MUTED)
+        };
 
-    // Cost gauge
-    let cost_max = 0.10; // assume $0.10 max for display purposes
-    let cost_pct = ((app.stats.total_cost / cost_max) * 100.0) as u16;
-    let cost_label = format!(" ${:.4} ", app.stats.total_cost);
+        let label = phase.as_str();
+        let text = format!(" {} {}", indicator, label);
 
-    let gauge_cost = Gauge::default()
-        .gauge_style(
-            Style::default()
-                .fg(CYAN)
-                .bg(BG_NAVY),
-        )
-        .percent(cost_pct.min(100))
-        .label(Span::styled(cost_label, Style::default().fg(TEXT_PRIMARY)));
-    f.render_widget(gauge_cost, Rect {
-        x: inner.x + 1,
-        y: inner.y + 2,
-        width: inner.width.saturating_sub(2),
-        height: 1,
-    });
+        spans.push(Span::styled(
+            text,
+            Style::default().fg(color).add_modifier(if i == current_idx {
+                Modifier::BOLD
+            } else {
+                Modifier::empty()
+            }),
+        ));
 
-    // Context usage gauge
-    let context_pct = tokens_pct.min(100);
-    let context_label = format!(" {}% ", context_pct);
+        // Add arrow between phases (if fits)
+        if i < phases.len() - 1 {
+            let arrow = " → ";
+            if spans.iter().map(|s| s.width()).sum::<usize>() + arrow.len() < max_w {
+                spans.push(Span::styled(arrow, Style::default().fg(TEXT_MUTED)));
+            } else {
+                spans.push(Span::styled(" ", Style::default().fg(TEXT_MUTED)));
+            }
+        }
+    }
 
-    let gauge_context = Gauge::default()
-        .gauge_style(
-            Style::default()
-                .fg(PURPLE_DIM)
-                .bg(BG_NAVY),
-        )
-        .percent(context_pct)
-        .label(Span::styled(context_label, Style::default().fg(TEXT_PRIMARY)));
-    f.render_widget(gauge_context, Rect {
-        x: inner.x + 1,
-        y: inner.y + 3,
-        width: inner.width.saturating_sub(2),
-        height: 1,
-    });
-
-    // Session Stats
-    let stats_lines = vec![
-        Line::from(vec![
-            Span::styled(" Agents: ", Style::default().fg(TEXT_MUTED)),
-            Span::styled(
-                format!("{}/{}", app.stats.completed_agents, app.stats.total_agents),
-                Style::default().fg(if app.stats.total_agents > 0
-                    && app.stats.completed_agents == app.stats.total_agents
-                {
-                    GREEN
-                } else {
-                    TEXT_PRIMARY
-                }),
-            ),
-            Span::raw("   "),
-            Span::styled("Domain: ", Style::default().fg(TEXT_MUTED)),
-            Span::styled(&app.domain, Style::default().fg(TEXT_SECONDARY)),
-        ]),
-        Line::from(vec![
-            Span::styled(" Tokens: ", Style::default().fg(TEXT_MUTED)),
-            Span::styled(
-                fmt_tokens(app.stats.total_tokens),
-                Style::default().fg(TEXT_PRIMARY),
-            ),
-            Span::raw("   "),
-            Span::styled("Cost: ", Style::default().fg(TEXT_MUTED)),
-            Span::styled(
-                format!("${:.4}", app.stats.total_cost),
-                Style::default().fg(TEXT_SECONDARY),
-            ),
-        ]),
-    ];
-
-    let stats_y = inner.y + 5;
-    let stats_area = Rect {
-        x: inner.x + 1,
-        y: stats_y,
-        width: inner.width.saturating_sub(2),
-        height: 2.max(inner.height.saturating_sub(6)),
-    };
-
-    let stats_para = Paragraph::new(Text::from(stats_lines))
+    let para = Paragraph::new(Text::from(Line::from(spans)))
         .style(Style::default().bg(BG_DEEP));
-    f.render_widget(stats_para, stats_area);
+
+    let content_area = Rect {
+        x: inner.x + 1,
+        y: inner.y + (inner.height.saturating_sub(1)) / 2,
+        width: inner.width.saturating_sub(2),
+        height: 1,
+    };
+    f.render_widget(para, content_area);
 }

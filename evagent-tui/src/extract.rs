@@ -1,109 +1,8 @@
-//! Helper functions for extracting tool calls, file activities, and progress from text.
+//! Simplified extraction helpers.
+//! No longer extracts ToolCall/FileActivity as separate types — those are
+//! embedded inline in AgentStatus during update_from_ws in app.rs.
 
-use crate::types::{FileActivity, ToolCall};
-
-// ─── Tool Call Extraction ───
-
-/// Try to extract a tool call from an agent's progress text.
-pub fn extract_tool_call(agent: &str, text: &str, timestamp: &str, duration: u64) -> Option<ToolCall> {
-    let lower = text.to_lowercase();
-
-    let (matched, icon) = if lower.contains("search") || lower.contains("lookup") {
-        (true, "🔍")
-    } else if lower.contains("write") || lower.contains("save") {
-        (true, "📝")
-    } else if lower.contains("read") || lower.contains("open") {
-        (true, "📖")
-    } else if lower.contains("run") || lower.contains("execut") || lower.contains("call") {
-        (true, "⚡")
-    } else if lower.contains("http") || lower.contains("fetch") || lower.contains("api") {
-        (true, "🌐")
-    } else if lower.contains("fix") || lower.contains("patch") || lower.contains("edit") {
-        (true, "🔧")
-    } else {
-        (false, "")
-    };
-
-    if !matched {
-        return None;
-    }
-
-    let tool_name = if let Some(pos) = text.find(':') {
-        text[..pos].trim().to_string()
-    } else if let Some(pos) = text.find("...") {
-        text[..pos].trim().to_string()
-    } else {
-        let parts: Vec<&str> = agent.split('.').collect();
-        parts.last().unwrap_or(&agent).to_string()
-    };
-
-    let target = if let Some(start) = text.find('"') {
-        if let Some(end) = text[start + 1..].find('"') {
-            text[start + 1..start + 1 + end].to_string()
-        } else {
-            String::new()
-        }
-    } else if let Some(pos) = text.to_lowercase().find(" on ") {
-        text[pos + 4..].trim().to_string()
-    } else if let Some(pos) = text.to_lowercase().find(" in ") {
-        text[pos + 4..].trim().to_string()
-    } else {
-        String::new()
-    };
-
-    Some(ToolCall {
-        icon: icon.to_string(),
-        tool_name: tool_name.chars().take(18).collect(),
-        target: target.chars().take(24).collect(),
-        timestamp: timestamp.to_string(),
-        duration_ms: duration,
-    })
-}
-
-// ─── File Activity Extraction ───
-
-/// Try to extract a file activity from progress text.
-pub fn extract_file_activity(text: &str, timestamp: &str) -> Option<FileActivity> {
-    let lower = text.to_lowercase();
-
-    let (matched, action) = if lower.contains("writing") || lower.contains("saving") {
-        (true, "✚ created")
-    } else if lower.contains("reading") || lower.contains("opening") {
-        (true, "○ read")
-    } else if lower.contains("modifying") || lower.contains("editing") || lower.contains("updating") || lower.contains("patching") {
-        (true, "◈ modified")
-    } else if lower.contains("deleting") || lower.contains("removing") {
-        (true, "✕ deleted")
-    } else {
-        (false, "")
-    };
-
-    if !matched {
-        return None;
-    }
-
-    let path = if let Some(start) = text.find('"') {
-        if let Some(end) = text[start + 1..].find('"') {
-            text[start + 1..start + 1 + end].to_string()
-        } else {
-            text[start + 1..].to_string()
-        }
-    } else if let Some(pos) = text.to_lowercase().find(" on ") {
-        text[pos + 4..].trim().to_string()
-    } else if let Some(pos) = text.to_lowercase().find(": ") {
-        text[pos + 2..].trim().to_string()
-    } else {
-        text.chars().take(30).collect()
-    };
-
-    Some(FileActivity {
-        path: path.chars().take(30).collect(),
-        action: action.to_string(),
-        timestamp: timestamp.to_string(),
-    })
-}
-
-// ─── Progress Parsing ───
+use crate::types::ToolInfo;
 
 /// Extract a percentage (0.0–100.0) from a progress string like "70%" or "searching... 55%".
 pub fn parse_progress(text: &str) -> f32 {
@@ -131,4 +30,94 @@ pub fn parse_progress(text: &str) -> f32 {
     } else {
         0.0
     }
+}
+
+/// Try to extract a tool name from progress text.
+/// Returns `ToolInfo` if a tool-like pattern is found, None otherwise.
+pub fn extract_tool_info(text: &str) -> Option<ToolInfo> {
+    let lower = text.to_lowercase();
+
+    let name = if lower.contains("search") || lower.contains("lookup") {
+        "Search"
+    } else if lower.contains("write") || lower.contains("save") {
+        "WriteFile"
+    } else if lower.contains("read") || lower.contains("open") {
+        "ReadFile"
+    } else if lower.contains("run") || lower.contains("execut") || lower.contains("call") {
+        "RunCommand"
+    } else if lower.contains("http") || lower.contains("fetch") || lower.contains("api") {
+        "HttpRequest"
+    } else if lower.contains("fix") || lower.contains("patch") || lower.contains("edit") {
+        "EditFile"
+    } else if lower.contains("think") || lower.contains("analyze") || lower.contains("reason") {
+        "Think"
+    } else if lower.contains("plan") || lower.contains("design") {
+        "Plan"
+    } else {
+        return None;
+    };
+
+    let target = if let Some(start) = text.find('"') {
+        if let Some(end) = text[start + 1..].find('"') {
+            text[start + 1..start + 1 + end].to_string()
+        } else {
+            text[start + 1..].trim().to_string()
+        }
+    } else if let Some(pos) = text.to_lowercase().find(" on ") {
+        text[pos + 4..].trim().to_string()
+    } else if let Some(pos) = text.to_lowercase().find(" in ") {
+        text[pos + 4..].trim().to_string()
+    } else if let Some(pos) = text.find(':') {
+        text[pos + 1..].trim().to_string()
+    } else {
+        String::new()
+    };
+
+    Some(ToolInfo {
+        name: name.to_string(),
+        target: target.chars().take(24).collect(),
+    })
+}
+
+/// Extract a diff summary like "+28 -6" from text.
+pub fn extract_diff_summary(text: &str) -> String {
+    // Look for patterns like "+N -M" or "+N lines -M lines"
+    let mut result = String::new();
+    let mut has_plus = false;
+    let mut has_minus = false;
+
+    for word in text.split_whitespace() {
+        if word.starts_with('+') && word[1..].chars().all(|c| c.is_ascii_digit()) {
+            if !has_plus {
+                if !result.is_empty() {
+                    result.push(' ');
+                }
+                result.push_str(word);
+                has_plus = true;
+            }
+        } else if word.starts_with('-') && word[1..].chars().all(|c| c.is_ascii_digit()) {
+            if !has_minus {
+                if !result.is_empty() {
+                    result.push(' ');
+                }
+                result.push_str(word);
+                has_minus = true;
+            }
+        }
+    }
+
+    // If no explicit diff pattern, check for "additions"/"deletions"
+    if result.is_empty() && (text.contains("diff") || text.contains("+") && text.contains("-")) {
+        for word in text.split_whitespace() {
+            if word.starts_with('+') || word.starts_with('-') {
+                let clean: String = word.chars().take(6).collect();
+                if !result.is_empty() {
+                    result.push(' ');
+                }
+                result.push_str(&clean);
+            }
+        }
+    }
+
+    result
 }

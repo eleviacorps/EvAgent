@@ -1,13 +1,14 @@
-//! EvAgent Neo-Terminal Command Center UI
+//! EvAgent TUI — Redesigned Layout
 //!
-//! Three-column layout: [Left 28% | Center 44% | Right 28%]
-//! Single outer borders — no double borders between panels.
+//! Vertical:  Header(1 line) | Content(flex) | Input(3 lines)
+//! Content:   Left(20%) | Center(60%) | Right(20%)
 
 pub mod header;
 pub mod input;
 pub mod left;
 pub mod center;
 pub mod right;
+pub mod markdown;
 
 use ratatui::{
     layout::{Constraint, Layout, Rect},
@@ -26,11 +27,11 @@ pub use right::draw_right;
 pub fn draw(f: &mut Frame, app: &mut App) {
     let area = f.area();
 
-    // Vertical split: Header (1) | Content (flex) | Input Bar (1)
+    // Vertical split: Header (1) | Content (flex) | Input (3)
     let main = Layout::vertical([
         Constraint::Length(1),
         Constraint::Min(0),
-        Constraint::Length(1),
+        Constraint::Length(3),
     ])
     .split(area);
 
@@ -39,16 +40,16 @@ pub fn draw(f: &mut Frame, app: &mut App) {
     draw_input(f, main[2], app);
 }
 
-/// Draw the main content area: three-column layout.
+/// Draw the main content area: three-column layout 20/60/20.
 fn draw_content(f: &mut Frame, area: Rect, app: &mut App) {
     if area.width < 60 || area.height < 5 {
         return;
     }
 
     let columns = Layout::horizontal([
-        Constraint::Percentage(28),
-        Constraint::Percentage(44),
-        Constraint::Percentage(28),
+        Constraint::Percentage(20),
+        Constraint::Percentage(60),
+        Constraint::Percentage(20),
     ])
     .split(area);
 

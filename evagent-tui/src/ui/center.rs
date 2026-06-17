@@ -1,183 +1,289 @@
-//! Center column: Chat + Execution Timeline.
-//! Top half: conversation view (user input + LLM responses)
-//! Bottom half: agent execution timeline
+//! Center column: Conversation Stream — merged chat + agent timeline.
+//!
+//! Shows user messages, agent response cards, and system messages in a
+//! unified scrollable stream. Each agent message is rendered as a bordered
+//! card with embedded tool calls and diff summaries.
 
 use ratatui::{
-    layout::{Constraint, Direction, Layout, Rect},
+    layout::Rect,
     style::{Color, Modifier, Style},
     text::{Line, Span, Text},
-    widgets::{Block, Borders, Paragraph, Wrap},
+    widgets::{Paragraph, Wrap},
     Frame,
 };
 
 use crate::app::App;
-use crate::types::{AgentState, ConnectionState, fmt_duration};
+use crate::types::{ChatMessage, ConnectionState};
+use crate::ui::markdown::{render_markdown, render_progress_bar};
 
-const BG_DEEP: Color = Color::Rgb(0, 0, 0);
-const BORDER: Color = Color::Rgb(37, 44, 82);
-const TEXT_PRIMARY: Color = Color::Rgb(201, 209, 255);
-const TEXT_SECONDARY: Color = Color::Rgb(166, 175, 216);
-const TEXT_MUTED: Color = Color::Rgb(126, 136, 181);
-const PURPLE: Color = Color::Rgb(197, 111, 255);
-const CYAN: Color = Color::Rgb(57, 216, 255);
-const GREEN: Color = Color::Rgb(60, 229, 154);
-const RED: Color = Color::Rgb(255, 90, 110);
+// ── Color Palette ──
+const BG_DEEP: Color = Color::Rgb(9, 11, 17);
+const BORDER: Color = Color::Rgb(35, 42, 54);
+const TEXT_PRIMARY: Color = Color::Rgb(215, 220, 229);
+const TEXT_MUTED: Color = Color::Rgb(127, 136, 150);
+const CYAN: Color = Color::Rgb(79, 195, 247);
+const GREEN: Color = Color::Rgb(74, 222, 128);
+const RED: Color = Color::Rgb(239, 68, 68);
 
 pub fn draw_center(f: &mut Frame, area: Rect, app: &App) {
-    let chunks = Layout::vertical([
-        Constraint::Percentage(50),
-        Constraint::Percentage(50),
-    ])
-    .split(area);
-
-    draw_chat(f, chunks[0], app);
-    draw_timeline(f, chunks[1], app);
-}
-
-fn draw_chat(f: &mut Frame, area: Rect, app: &App) {
-    let block = Block::default()
-        .title(Span::styled(" Chat ", Style::default().fg(PURPLE).add_modifier(Modifier::BOLD)))
-        .borders(Borders::ALL)
-        .border_style(Style::default().fg(BORDER))
-        .style(Style::default().bg(BG_DEEP));
-
-    let inner = block.inner(area);
-    f.render_widget(block, area);
+    let max_h = area.height.saturating_sub(1) as usize;
+    let max_w = area.width.saturating_sub(2) as usize;
 
     let mut lines: Vec<Line> = Vec::new();
 
     if app.chat_messages.is_empty() {
-        match app.connection_status {
+        // Empty state
+        let msg = match app.connection_status {
             ConnectionState::Connected => {
-                lines.push(Line::from(Span::styled(
-                    "  Welcome to EvAgent. Type a prompt below.",
-                    Style::default().fg(TEXT_MUTED).add_modifier(Modifier::ITALIC),
-                )));
+                "  Welcome to EvAgent. Type a prompt below."
             }
             ConnectionState::Connecting => {
-                lines.push(Line::from(Span::styled(
-                    "  Connecting to EvAgent core...",
-                    Style::default().fg(CYAN),
-                )));
+                "  Connecting to EvAgent core..."
             }
             ConnectionState::Disconnected => {
-                lines.push(Line::from(Span::styled(
-                    "  Connection lost. Reconnecting...",
-                    Style::default().fg(RED),
-                )));
+                "  Connection lost. Reconnecting..."
             }
-        }
+        };
+        let color = match app.connection_status {
+            ConnectionState::Connected => TEXT_MUTED,
+            ConnectionState::Connecting => CYAN,
+            ConnectionState::Disconnected => RED,
+        };
+        lines.push(Line::from(Span::styled(
+            msg,
+            Style::default().fg(color).add_modifier(Modifier::ITALIC),
+        )));
     } else {
-        for msg in app.chat_messages.iter().rev().take(100).rev() {
-            let (prefix, style) = match msg.role.as_str() {
-                "user" => ("┃ ", Style::default().fg(CYAN)),
-                "assistant" => ("┃ ", Style::default().fg(PURPLE)),
-                "system" => ("  ", Style::default().fg(TEXT_MUTED).add_modifier(Modifier::ITALIC)),
-                _ => ("  ", Style::default().fg(TEXT_SECONDARY)),
-            };
-
-            let content = &msg.content;
-            // Split multi-line messages
-            let content_lines: Vec<&str> = content.lines().collect();
-            for (i, line_str) in content_lines.iter().enumerate() {
-                let max_w = inner.width.saturating_sub(4) as usize;
-                let display = if line_str.len() > max_w && max_w > 10 {
-                    format!("{}…", &line_str[..max_w.saturating_sub(1)])
-                } else {
-                    line_str.to_string()
-                };
-                if i == 0 {
-                    lines.push(Line::from(vec![
-                        Span::styled(prefix, style),
-                        Span::styled(display, Style::default().fg(TEXT_PRIMARY)),
-                    ]));
-                } else {
-                    lines.push(Line::from(Span::styled(
-                        format!("   {}", display),
-                        Style::default().fg(TEXT_SECONDARY),
-                    )));
+        for msg in app.chat_messages.iter() {
+            match msg.role.as_str() {
+                "user" => {
+                    render_user_message(&mut lines, msg, max_w);
+                }
+                "agent" => {
+                    render_agent_card(&mut lines, msg, max_w);
+                }
+                "assistant" => {
+                    render_assistant_message(&mut lines, msg, max_w);
+                }
+                "system" => {
+                    render_system_message(&mut lines, msg, max_w);
+                }
+                _ => {
+                    render_system_message(&mut lines, msg, max_w);
                 }
             }
+
+            // Add small space between messages
+            lines.push(Line::from(""));
         }
     }
 
-    // Fill remaining space
-    while lines.len() < inner.height.saturating_sub(1) as usize {
+    // Fill remaining space with empty lines
+    let visible_count = lines.len().min(max_h);
+    let scroll_offset = if visible_count > 0 {
+        lines.len().saturating_sub(max_h)
+    } else {
+        0
+    };
+
+    // Only show the last `max_h` lines
+    if scroll_offset > 0 {
+        lines = lines.split_off(scroll_offset);
+    }
+
+    // Pad to fill height
+    while lines.len() < max_h {
         lines.push(Line::from(""));
     }
 
     let para = Paragraph::new(Text::from(lines))
         .style(Style::default().bg(BG_DEEP))
         .wrap(Wrap { trim: false });
-    f.render_widget(para, inner);
+    f.render_widget(para, area);
 }
 
-fn draw_timeline(f: &mut Frame, area: Rect, app: &App) {
-    let block = Block::default()
-        .title(Span::styled(" Execution Timeline ", Style::default().fg(PURPLE).add_modifier(Modifier::BOLD)))
-        .borders(Borders::ALL)
-        .border_style(Style::default().fg(BORDER))
-        .style(Style::default().bg(BG_DEEP));
+// ── Render Helpers ──
 
-    let inner = block.inner(area);
-    f.render_widget(block, area);
+fn render_user_message(lines: &mut Vec<Line>, msg: &ChatMessage, max_w: usize) {
+    // "You" header
+    lines.push(Line::from(vec![
+        Span::styled(
+            " You ",
+            Style::default().fg(CYAN).add_modifier(Modifier::BOLD),
+        ),
+    ]));
 
-    if app.timeline_events.is_empty() {
-        let msg = Paragraph::new(Text::from(vec![
-            Line::from(""),
-            Line::from(Span::styled(
-                "  No agent activity yet.",
-                Style::default().fg(TEXT_MUTED).add_modifier(Modifier::ITALIC),
-            )),
-        ]))
-        .style(Style::default().bg(BG_DEEP));
-        f.render_widget(msg, inner);
-        return;
+    // Content with markdown rendering
+    let content_lines = render_markdown(&msg.content);
+    for cl in content_lines {
+        let truncated = truncate_line(cl, max_w.saturating_sub(2));
+        lines.push(truncated);
     }
+}
 
-    let mut lines: Vec<Line> = Vec::new();
-    let max_visible = inner.height.saturating_sub(1) as usize;
-    let start = if app.timeline_events.len() > max_visible {
-        app.timeline_events.len() - max_visible
+fn render_agent_card(lines: &mut Vec<Line>, msg: &ChatMessage, max_w: usize) {
+    let agent_name = msg.agent_name.as_deref().unwrap_or("Agent");
+    let progress = msg.agent_progress.unwrap_or(0.0);
+
+    // Card top border with agent name and progress
+    let bar_width = (max_w as u16).saturating_sub(agent_name.len() as u16 + 10).max(4);
+    let progress_str = render_progress_bar(progress, bar_width);
+
+    let title = format!(" {} {} ", agent_name, progress_str);
+    let title_len = title.len();
+    let border_len = max_w.saturating_sub(2).min(title_len + 4);
+
+    let top_border = format!(
+        "┌{}┐",
+        "─".repeat(border_len)
+    );
+    lines.push(Line::from(Span::styled(
+        top_border,
+        Style::default().fg(BORDER),
+    )));
+
+    // Title line inside the card
+    let title_fill = if title_len < border_len {
+        " ".repeat(border_len - title_len)
     } else {
-        0
+        String::new()
     };
+    lines.push(Line::from(vec![
+        Span::styled("│", Style::default().fg(BORDER)),
+        Span::styled(
+            format!(" {}{} ", agent_name, title_fill),
+            Style::default().fg(CYAN).add_modifier(Modifier::BOLD),
+        ),
+        Span::styled(
+            format!("{:3.0}%", progress),
+            Style::default().fg(if progress >= 100.0 {
+                GREEN
+            } else {
+                TEXT_MUTED
+            }),
+        ),
+        Span::styled(" │", Style::default().fg(BORDER)),
+    ]));
 
-    for event in app.timeline_events[start..].iter() {
-        let (icon, scolor) = match event.status {
-            AgentState::Completed => ("●", GREEN),
-            AgentState::Running => ("▶", CYAN),
-            AgentState::Failed => ("●", RED),
-            AgentState::Timeout => ("●", RED),
-            AgentState::Idle => ("○", TEXT_MUTED),
-        };
-
-        let action_w = (inner.width.saturating_sub(30) as usize).max(5);
-        let action = if event.action.len() > action_w {
-            format!("{}…", &event.action[..action_w.saturating_sub(1)])
+    // Content lines (progress text)
+    let content_lines = render_markdown(&msg.content);
+    for cl in content_lines {
+        let wrap_w = max_w.saturating_sub(4);
+        let display = if cl.width() > wrap_w && wrap_w > 10 {
+            let s = cl.to_string();
+            format!("{}…", &s[..wrap_w.saturating_sub(1)])
         } else {
-            event.action.clone()
+            cl.to_string()
         };
-
-        let dur = if event.duration_ms > 0 {
-            fmt_duration(event.duration_ms)
-        } else { "—".into() };
-
-        let agent_s = event.agent_name.split('.').last().unwrap_or(&event.agent_name);
-
         lines.push(Line::from(vec![
-            Span::styled(format!(" {} ", event.timestamp), Style::default().fg(TEXT_MUTED)),
-            Span::styled("┃", Style::default().fg(BORDER)),
-            Span::styled(format!(" {:<14}", agent_s), Style::default().fg(TEXT_SECONDARY)),
-            Span::styled(format!(" {:<20}", action), Style::default().fg(TEXT_PRIMARY)),
-            Span::styled(format!(" {:>6}", dur), Style::default().fg(TEXT_MUTED)),
-            Span::raw(" "),
-            Span::styled(icon, Style::default().fg(scolor).add_modifier(Modifier::BOLD)),
+            Span::styled("│ ", Style::default().fg(BORDER)),
+            Span::styled(display, Style::default().fg(TEXT_PRIMARY)),
+            Span::styled(" │", Style::default().fg(BORDER)),
         ]));
     }
 
-    let para = Paragraph::new(Text::from(lines))
-        .style(Style::default().bg(BG_DEEP))
-        .wrap(Wrap { trim: false });
-    f.render_widget(para, inner);
+    // Tools used
+    if !msg.agent_tools.is_empty() {
+        let tools_str = msg
+            .agent_tools
+            .iter()
+            .map(|t| {
+                if t.target.is_empty() {
+                    t.name.clone()
+                } else {
+                    format!("{} {}", t.name, t.target)
+                }
+            })
+            .collect::<Vec<_>>()
+            .join(", ");
+
+        let tools_display = if tools_str.len() > max_w.saturating_sub(10) {
+            format!("{}…", &tools_str[..max_w.saturating_sub(13)])
+        } else {
+            tools_str
+        };
+
+        lines.push(Line::from(vec![
+            Span::styled("│ ", Style::default().fg(BORDER)),
+            Span::styled("Tools: ", Style::default().fg(TEXT_MUTED)),
+            Span::styled(tools_display, Style::default().fg(CYAN)),
+            Span::styled(" │", Style::default().fg(BORDER)),
+        ]));
+    }
+
+    // Diff summary
+    if !msg.agent_diff.is_empty() {
+        lines.push(Line::from(vec![
+            Span::styled("│ ", Style::default().fg(BORDER)),
+            Span::styled("Diff: ", Style::default().fg(TEXT_MUTED)),
+            Span::styled(
+                msg.agent_diff.clone(),
+                Style::default().fg(GREEN),
+            ),
+            Span::styled(" │", Style::default().fg(BORDER)),
+        ]));
+    }
+
+    // Card bottom border
+    let bottom_border = format!(
+        "└{}┘",
+        "─".repeat(border_len)
+    );
+    lines.push(Line::from(Span::styled(
+        bottom_border,
+        Style::default().fg(BORDER),
+    )));
+}
+
+fn render_assistant_message(lines: &mut Vec<Line>, msg: &ChatMessage, max_w: usize) {
+    lines.push(Line::from(vec![
+        Span::styled(
+            " EvAgent ",
+            Style::default().fg(GREEN).add_modifier(Modifier::BOLD),
+        ),
+    ]));
+
+    let content_lines = render_markdown(&msg.content);
+    for cl in content_lines {
+        let truncated = truncate_line(cl, max_w.saturating_sub(2));
+        lines.push(truncated);
+    }
+}
+
+fn render_system_message(lines: &mut Vec<Line>, msg: &ChatMessage, max_w: usize) {
+    // System messages as horizontal rule style
+    let line_len = max_w.min(40);
+    lines.push(Line::from(Span::styled(
+        "─".repeat(line_len),
+        Style::default().fg(BORDER),
+    )));
+
+    let content_lines = render_markdown(&msg.content);
+    for cl in content_lines {
+        let display = if cl.width() > max_w.saturating_sub(4) && max_w > 10 {
+            let s = cl.to_string();
+            format!("{}…", &s[..max_w.saturating_sub(5)])
+        } else {
+            cl.to_string()
+        };
+        lines.push(Line::from(vec![
+            Span::styled("  ", Style::default().fg(TEXT_MUTED)),
+            Span::styled(
+                display,
+                Style::default()
+                    .fg(TEXT_MUTED)
+                    .add_modifier(Modifier::ITALIC),
+            ),
+        ]));
+    }
+}
+
+/// Truncate a Line to fit within max_w characters.
+fn truncate_line(line: Line<'static>, max_w: usize) -> Line<'static> {
+    if line.width() <= max_w || max_w < 10 {
+        return line;
+    }
+    let s = line.to_string();
+    let truncated = format!("{}…", &s[..max_w.saturating_sub(1)]);
+    Line::from(Span::raw(truncated))
 }

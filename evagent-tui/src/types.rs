@@ -1,12 +1,12 @@
+//! EvAgent TUI type definitions — cleaned and redesigned.
+//! Removed: TimelineEvent, ToolCall, FileActivity, AgentTreeNode.
+//! Added: LifecyclePhase, ToolInfo (embedded in AgentStatus).
+
 #![allow(dead_code)]
-use chrono::{DateTime, Utc};
-use ratatui::style::Color;
-use serde::{Deserialize, Serialize};
-use std::time::Duration;
 
-// ─── WebSocket Client Messages (TUI → Core) ───
+// ─── WebSocket Messages ───
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 #[serde(tag = "type")]
 pub enum WsClientMessage {
     Ping,
@@ -24,9 +24,7 @@ pub enum WsClientMessage {
     },
 }
 
-// ─── WebSocket Server Messages (Core → TUI) ───
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 #[serde(tag = "type")]
 pub enum WsServerMessage {
     Pong,
@@ -46,39 +44,18 @@ pub enum WsServerMessage {
         aggregated: String,
     },
     #[serde(rename = "SessionUpdate")]
-    SessionUpdate {
-        session: serde_json::Value,
-    },
+    SessionUpdate { session: serde_json::Value },
     #[serde(rename = "AgentList")]
-    AgentList {
-        agents: Vec<serde_json::Value>,
-    },
+    AgentList { agents: Vec<serde_json::Value> },
     #[serde(rename = "SkillList")]
-    SkillList {
-        skills: Vec<serde_json::Value>,
-    },
+    SkillList { skills: Vec<serde_json::Value> },
     #[serde(rename = "SessionList")]
-    SessionList {
-        sessions: Vec<serde_json::Value>,
-    },
+    SessionList { sessions: Vec<serde_json::Value> },
     #[serde(rename = "Error")]
-    Error {
-        message: String,
-    },
+    Error { message: String },
 }
 
-// ─── Internal State Types ───
-
-#[derive(Debug, Clone)]
-pub struct AgentStatus {
-    pub task_id: String,
-    pub agent_name: String,
-    pub status: AgentState,
-    pub progress: f32,
-    pub progress_text: String,
-    pub tokens_used: u64,
-    pub wall_clock_ms: u64,
-}
+// ─── Agent State ───
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum AgentState {
@@ -111,11 +88,89 @@ impl AgentState {
     }
 }
 
+// ─── Lifecycle Phase ───
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum LifecyclePhase {
+    Thinking,
+    Planning,
+    Executing,
+    Verifying,
+    Merging,
+}
+
+impl LifecyclePhase {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            LifecyclePhase::Thinking => "THINKING",
+            LifecyclePhase::Planning => "PLANNING",
+            LifecyclePhase::Executing => "EXECUTING",
+            LifecyclePhase::Verifying => "VERIFYING",
+            LifecyclePhase::Merging => "MERGING",
+        }
+    }
+
+    pub fn all() -> Vec<LifecyclePhase> {
+        vec![
+            LifecyclePhase::Thinking,
+            LifecyclePhase::Planning,
+            LifecyclePhase::Executing,
+            LifecyclePhase::Verifying,
+            LifecyclePhase::Merging,
+        ]
+    }
+
+    pub fn index(&self) -> usize {
+        match self {
+            LifecyclePhase::Thinking => 0,
+            LifecyclePhase::Planning => 1,
+            LifecyclePhase::Executing => 2,
+            LifecyclePhase::Verifying => 3,
+            LifecyclePhase::Merging => 4,
+        }
+    }
+}
+
+// ─── Tool Info (embedded in AgentStatus cards) ───
+
+#[derive(Debug, Clone)]
+pub struct ToolInfo {
+    pub name: String,
+    pub target: String,
+}
+
+// ─── Agent Status (richer for card rendering) ───
+
+#[derive(Debug, Clone)]
+pub struct AgentStatus {
+    pub task_id: String,
+    pub agent_name: String,
+    pub status: AgentState,
+    pub progress: f32,
+    pub progress_text: String,
+    pub tokens_used: u64,
+    pub wall_clock_ms: u64,
+    /// Tool calls used by this agent (embedded in card)
+    pub tools_used: Vec<ToolInfo>,
+    /// Diff summary like "+28 -6"
+    pub diff_summary: String,
+}
+
+// ─── Chat Message ───
+
 #[derive(Debug, Clone)]
 pub struct ChatMessage {
-    pub role: String,
+    pub role: String,   // "user", "assistant", "system"
     pub content: String,
-    pub timestamp: DateTime<Utc>,
+    pub timestamp: chrono::DateTime<chrono::Utc>,
+    /// Agent name if this is an agent card message
+    pub agent_name: Option<String>,
+    /// Progress info for agent cards
+    pub agent_progress: Option<f32>,
+    /// Tools used (for agent cards)
+    pub agent_tools: Vec<ToolInfo>,
+    /// Diff summary (for agent cards)
+    pub agent_diff: String,
 }
 
 impl ChatMessage {
@@ -123,10 +178,34 @@ impl ChatMessage {
         Self {
             role: role.into(),
             content: content.into(),
-            timestamp: Utc::now(),
+            timestamp: chrono::Utc::now(),
+            agent_name: None,
+            agent_progress: None,
+            agent_tools: Vec::new(),
+            agent_diff: String::new(),
+        }
+    }
+
+    pub fn agent_card(
+        agent_name: impl Into<String>,
+        content: impl Into<String>,
+        progress: f32,
+        tools: Vec<ToolInfo>,
+        diff: String,
+    ) -> Self {
+        Self {
+            role: "agent".to_string(),
+            content: content.into(),
+            timestamp: chrono::Utc::now(),
+            agent_name: Some(agent_name.into()),
+            agent_progress: Some(progress),
+            agent_tools: tools,
+            agent_diff: diff,
         }
     }
 }
+
+// ─── Session Info ───
 
 #[derive(Debug, Clone)]
 pub struct SessionInfo {
@@ -170,6 +249,8 @@ impl SessionStatus {
     }
 }
 
+// ─── Session Stats ───
+
 #[derive(Debug, Clone, Default)]
 pub struct SessionStats {
     pub total_tokens: u64,
@@ -178,6 +259,8 @@ pub struct SessionStats {
     pub total_agents: usize,
     pub completed_agents: usize,
 }
+
+// ─── Connection State ───
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum ConnectionState {
@@ -194,60 +277,6 @@ impl ConnectionState {
             ConnectionState::Connecting => "Connecting...",
         }
     }
-}
-
-// ─── Domain Colors ───
-
-pub fn domain_color(domain: &str) -> Color {
-    match domain.to_lowercase().as_str() {
-        "coding" => Color::Blue,
-        "research" => Color::Green,
-        "writing" => Color::Yellow,
-        "trading" => Color::Magenta,
-        "study" => Color::Cyan,
-        "communication" => Color::LightMagenta,
-        "media" => Color::Red,
-        _ => Color::White,
-    }
-}
-
-// ─── Neo-Terminal Command Center UI Types ───
-
-/// A node in the agent tree hierarchy (flat with level for rendering).
-#[derive(Debug, Clone)]
-pub struct AgentTreeNode {
-    pub name: String,
-    pub level: usize,
-    pub status: AgentState,
-}
-
-/// An event on the execution timeline.
-#[derive(Debug, Clone)]
-pub struct TimelineEvent {
-    pub timestamp: String,
-    pub agent_name: String,
-    pub action: String,
-    pub duration_ms: u64,
-    pub status: AgentState,
-    pub details: Vec<String>,
-}
-
-/// A recorded tool call.
-#[derive(Debug, Clone)]
-pub struct ToolCall {
-    pub icon: String,
-    pub tool_name: String,
-    pub target: String,
-    pub timestamp: String,
-    pub duration_ms: u64,
-}
-
-/// A recorded file activity.
-#[derive(Debug, Clone)]
-pub struct FileActivity {
-    pub path: String,
-    pub action: String,
-    pub timestamp: String,
 }
 
 // ─── Formatting Helpers ───
@@ -284,10 +313,12 @@ pub fn fmt_duration(ms: u64) -> String {
     }
 }
 
-pub fn fmt_runtime(dur: Duration) -> String {
-    let total_secs = dur.as_secs();
-    let hours = total_secs / 3600;
-    let minutes = (total_secs % 3600) / 60;
-    let seconds = total_secs % 60;
-    format!("{:02}:{:02}:{:02}", hours, minutes, seconds)
+pub fn fmt_cost(cost: f64) -> String {
+    if cost >= 1.0 {
+        format!("${:.2}", cost)
+    } else if cost >= 0.01 {
+        format!("${:.3}", cost)
+    } else {
+        format!("${:.4}", cost)
+    }
 }
