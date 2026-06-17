@@ -1,14 +1,9 @@
-//! Center column: Execution Timeline.
-//!
-//! Vertical timeline with timestamp, agent, action, duration, status.
-//! ```text
-//! 12:31:22 ┃ code-writer     Modifying engine.py          14.2s  ●
-//! 12:31:24 ┃ reviewer        Checking types                3.1s  ●
-//! 12:31:27 ┃ planner         Planning dashboard            —     ▶
-//! ```
+//! Center column: Chat + Execution Timeline.
+//! Top half: conversation view (user input + LLM responses)
+//! Bottom half: agent execution timeline
 
 use ratatui::{
-    layout::Rect,
+    layout::{Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span, Text},
     widgets::{Block, Borders, Paragraph, Wrap},
@@ -16,9 +11,8 @@ use ratatui::{
 };
 
 use crate::app::App;
-use crate::types::{AgentState, fmt_duration};
+use crate::types::{AgentState, ConnectionState, fmt_duration};
 
-// ── Color Palette ──
 const BG_DEEP: Color = Color::Rgb(3, 4, 10);
 const BORDER: Color = Color::Rgb(37, 44, 82);
 const TEXT_PRIMARY: Color = Color::Rgb(201, 209, 255);
@@ -30,11 +24,97 @@ const GREEN: Color = Color::Rgb(60, 229, 154);
 const RED: Color = Color::Rgb(255, 90, 110);
 
 pub fn draw_center(f: &mut Frame, area: Rect, app: &App) {
+    let chunks = Layout::vertical([
+        Constraint::Percentage(50),
+        Constraint::Percentage(50),
+    ])
+    .split(area);
+
+    draw_chat(f, chunks[0], app);
+    draw_timeline(f, chunks[1], app);
+}
+
+fn draw_chat(f: &mut Frame, area: Rect, app: &App) {
     let block = Block::default()
-        .title(Span::styled(
-            " Execution Timeline ",
-            Style::default().fg(PURPLE).add_modifier(Modifier::BOLD),
-        ))
+        .title(Span::styled(" Chat ", Style::default().fg(PURPLE).add_modifier(Modifier::BOLD)))
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(BORDER))
+        .style(Style::default().bg(BG_DEEP));
+
+    let inner = block.inner(area);
+    f.render_widget(block, area);
+
+    let mut lines: Vec<Line> = Vec::new();
+
+    if app.chat_messages.is_empty() {
+        match app.connection_status {
+            ConnectionState::Connected => {
+                lines.push(Line::from(Span::styled(
+                    "  Welcome to EvAgent. Type a prompt below.",
+                    Style::default().fg(TEXT_MUTED).add_modifier(Modifier::ITALIC),
+                )));
+            }
+            ConnectionState::Connecting => {
+                lines.push(Line::from(Span::styled(
+                    "  Connecting to EvAgent core...",
+                    Style::default().fg(CYAN),
+                )));
+            }
+            ConnectionState::Disconnected => {
+                lines.push(Line::from(Span::styled(
+                    "  Connection lost. Reconnecting...",
+                    Style::default().fg(RED),
+                )));
+            }
+        }
+    } else {
+        for msg in app.chat_messages.iter().rev().take(100).rev() {
+            let (prefix, style) = match msg.role.as_str() {
+                "user" => ("┃ ", Style::default().fg(CYAN)),
+                "assistant" => ("┃ ", Style::default().fg(PURPLE)),
+                "system" => ("  ", Style::default().fg(TEXT_MUTED).add_modifier(Modifier::ITALIC)),
+                _ => ("  ", Style::default().fg(TEXT_SECONDARY)),
+            };
+
+            let content = &msg.content;
+            // Split multi-line messages
+            let content_lines: Vec<&str> = content.lines().collect();
+            for (i, line_str) in content_lines.iter().enumerate() {
+                let max_w = inner.width.saturating_sub(4) as usize;
+                let display = if line_str.len() > max_w && max_w > 10 {
+                    format!("{}…", &line_str[..max_w.saturating_sub(1)])
+                } else {
+                    line_str.to_string()
+                };
+                if i == 0 {
+                    lines.push(Line::from(vec![
+                        Span::styled(prefix, style),
+                        Span::styled(display, Style::default().fg(TEXT_PRIMARY)),
+                    ]));
+                } else {
+                    lines.push(Line::from(Span::styled(
+                        format!("   {}", display),
+                        Style::default().fg(TEXT_SECONDARY),
+                    )));
+                }
+            }
+        }
+    }
+
+    // Fill remaining space
+    while lines.len() < inner.height.saturating_sub(1) as usize {
+        lines.push(Line::from(""));
+    }
+
+    let para = Paragraph::new(Text::from(lines))
+        .style(Style::default().bg(BG_DEEP))
+        .wrap(Wrap { trim: false });
+    f.render_widget(para, inner);
+}
+
+fn draw_timeline(f: &mut Frame, area: Rect, app: &App) {
+    let block = Block::default()
+        .title(Span::styled(" Execution Timeline ", Style::default().fg(PURPLE).add_modifier(Modifier::BOLD)))
         .borders(Borders::ALL)
         .border_style(Style::default().fg(BORDER))
         .style(Style::default().bg(BG_DEEP));
@@ -46,11 +126,7 @@ pub fn draw_center(f: &mut Frame, area: Rect, app: &App) {
         let msg = Paragraph::new(Text::from(vec![
             Line::from(""),
             Line::from(Span::styled(
-                " Awaiting agent activity...",
-                Style::default().fg(TEXT_MUTED).add_modifier(Modifier::ITALIC),
-            )),
-            Line::from(Span::styled(
-                " Type a prompt to dispatch agents.",
+                "  No agent activity yet.",
                 Style::default().fg(TEXT_MUTED).add_modifier(Modifier::ITALIC),
             )),
         ]))
@@ -61,8 +137,6 @@ pub fn draw_center(f: &mut Frame, area: Rect, app: &App) {
 
     let mut lines: Vec<Line> = Vec::new();
     let max_visible = inner.height.saturating_sub(1) as usize;
-
-    // Show recent events (reversed chronological order, most recent first)
     let start = if app.timeline_events.len() > max_visible {
         app.timeline_events.len() - max_visible
     } else {
@@ -70,7 +144,7 @@ pub fn draw_center(f: &mut Frame, area: Rect, app: &App) {
     };
 
     for event in app.timeline_events[start..].iter() {
-        let status_indicator = match event.status {
+        let (icon, scolor) = match event.status {
             AgentState::Completed => ("●", GREEN),
             AgentState::Running => ("▶", CYAN),
             AgentState::Failed => ("●", RED),
@@ -78,62 +152,28 @@ pub fn draw_center(f: &mut Frame, area: Rect, app: &App) {
             AgentState::Idle => ("○", TEXT_MUTED),
         };
 
-        // Format the action text with width limiting
-        let action_width = inner.width.saturating_sub(30) as usize;
-        let action = if event.action.len() > action_width && action_width > 5 {
-            format!("{}…", &event.action[..action_width.saturating_sub(1)])
+        let action_w = (inner.width.saturating_sub(30) as usize).max(5);
+        let action = if event.action.len() > action_w {
+            format!("{}…", &event.action[..action_w.saturating_sub(1)])
         } else {
             event.action.clone()
         };
 
-        // Format duration
-        let duration_str = if event.duration_ms > 0 {
+        let dur = if event.duration_ms > 0 {
             fmt_duration(event.duration_ms)
-        } else {
-            "—".to_string()
-        };
+        } else { "—".into() };
 
-        // Agent name (use last part of dotted name)
-        let agent_short = event
-            .agent_name
-            .split('.')
-            .last()
-            .unwrap_or(&event.agent_name);
+        let agent_s = event.agent_name.split('.').last().unwrap_or(&event.agent_name);
 
-        let line = Line::from(vec![
-            // Timestamp
-            Span::styled(
-                format!(" {} ", event.timestamp),
-                Style::default().fg(TEXT_MUTED),
-            ),
-            // Vertical line
+        lines.push(Line::from(vec![
+            Span::styled(format!(" {} ", event.timestamp), Style::default().fg(TEXT_MUTED)),
             Span::styled("┃", Style::default().fg(BORDER)),
-            // Agent name
-            Span::styled(
-                format!(" {:<14}", agent_short),
-                Style::default().fg(TEXT_SECONDARY),
-            ),
-            // Action
-            Span::styled(
-                format!(" {:<20}", action),
-                Style::default().fg(TEXT_PRIMARY),
-            ),
-            // Duration
-            Span::styled(
-                format!(" {:>6}", duration_str),
-                Style::default().fg(TEXT_MUTED),
-            ),
-            // Status
+            Span::styled(format!(" {:<14}", agent_s), Style::default().fg(TEXT_SECONDARY)),
+            Span::styled(format!(" {:<20}", action), Style::default().fg(TEXT_PRIMARY)),
+            Span::styled(format!(" {:>6}", dur), Style::default().fg(TEXT_MUTED)),
             Span::raw(" "),
-            Span::styled(
-                status_indicator.0,
-                Style::default()
-                    .fg(status_indicator.1)
-                    .add_modifier(Modifier::BOLD),
-            ),
-        ]);
-
-        lines.push(line);
+            Span::styled(icon, Style::default().fg(scolor).add_modifier(Modifier::BOLD)),
+        ]));
     }
 
     let para = Paragraph::new(Text::from(lines))
