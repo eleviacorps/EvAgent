@@ -253,7 +253,8 @@ impl App {
                 self.aggregated_result = Some(aggregated.clone());
                 self.stats.domain = self.domain.clone();
 
-                self.add_chat_message("assistant", &format!("**Result (session {}):**\n{}", session_id, aggregated));
+                let resp_text = aggregated.clone();
+                self.add_chat_message("assistant", &resp_text);
 
                 if !outputs.is_empty() {
                     self.add_chat_message("system", &format!("📦 Received {} agent output(s)", outputs.len()));
@@ -446,8 +447,7 @@ impl App {
         }
 
         self.add_chat_message("user", &prompt);
-        self.mission_text = prompt.clone();
-        self.lifecycle_phase = LifecyclePhase::Thinking;
+        self.active_agents.clear();
 
         // Clear previous agents when dispatching a new task
         self.active_agents.clear();

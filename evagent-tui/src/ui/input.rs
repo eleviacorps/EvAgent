@@ -19,7 +19,7 @@ use crate::app::App;
 use crate::types::ConnectionState;
 
 // ── Color Palette ──
-const BG_DEEP: Color = Color::Rgb(9, 11, 17);
+const BG_DEEP: Color = Color::Rgb(0, 0, 0);
 const BORDER: Color = Color::Rgb(35, 42, 54);
 const TEXT_PRIMARY: Color = Color::Rgb(215, 220, 229);
 const TEXT_MUTED: Color = Color::Rgb(127, 136, 150);

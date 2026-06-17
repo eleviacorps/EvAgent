@@ -16,7 +16,7 @@ use crate::app::App;
 use crate::types::{ConnectionState, fmt_cost, fmt_tokens};
 
 // ── Color Palette (90% grayscale, 5% green, 5% blue) ──
-const BG_DEEP: Color = Color::Rgb(9, 11, 17);
+const BG_DEEP: Color = Color::Rgb(0, 0, 0);
 const TEXT_PRIMARY: Color = Color::Rgb(215, 220, 229);
 const TEXT_MUTED: Color = Color::Rgb(127, 136, 150);
 const CYAN: Color = Color::Rgb(79, 195, 247);
