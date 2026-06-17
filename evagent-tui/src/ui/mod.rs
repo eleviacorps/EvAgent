@@ -1,7 +1,7 @@
 //! EvAgent Neo-Terminal Command Center UI
 //!
 //! Three-column layout: [Left 28% | Center 44% | Right 28%]
-//! Color palette matches the exact Neo-Terminal design spec.
+//! Single outer borders — no double borders between panels.
 
 pub mod header;
 pub mod input;
@@ -26,11 +26,11 @@ pub use right::draw_right;
 pub fn draw(f: &mut Frame, app: &mut App) {
     let area = f.area();
 
-    // Vertical split: Header (1) | Content (flex) | Input Bar (2)
+    // Vertical split: Header (1) | Content (flex) | Input Bar (1)
     let main = Layout::vertical([
-        Constraint::Length(1),  // Header
-        Constraint::Min(0),     // Content area
-        Constraint::Length(2),  // Input bar (border + prompt line)
+        Constraint::Length(1),
+        Constraint::Min(0),
+        Constraint::Length(1),
     ])
     .split(area);
 

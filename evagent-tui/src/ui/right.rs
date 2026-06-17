@@ -14,7 +14,7 @@ use crate::app::App;
 use crate::types::fmt_duration;
 
 // ── Color Palette ──
-const BG_DEEP: Color = Color::Rgb(3, 4, 10);
+const BG_DEEP: Color = Color::Rgb(0, 0, 0);
 const BORDER: Color = Color::Rgb(37, 44, 82);
 const TEXT_PRIMARY: Color = Color::Rgb(201, 209, 255);
 const TEXT_SECONDARY: Color = Color::Rgb(166, 175, 216);
@@ -44,7 +44,7 @@ fn draw_tool_calls(f: &mut Frame, area: Rect, app: &App) {
             " Tool Calls ",
             Style::default().fg(PURPLE).add_modifier(Modifier::BOLD),
         ))
-        .borders(Borders::ALL)
+        .borders(Borders::RIGHT | Borders::TOP)
         .border_style(Style::default().fg(BORDER))
         .style(Style::default().bg(BG_DEEP));
 
@@ -142,7 +142,7 @@ fn draw_file_activity(f: &mut Frame, area: Rect, app: &App) {
             " File Activity ",
             Style::default().fg(PURPLE).add_modifier(Modifier::BOLD),
         ))
-        .borders(Borders::ALL)
+        .borders(Borders::RIGHT | Borders::BOTTOM)
         .border_style(Style::default().fg(BORDER))
         .style(Style::default().bg(BG_DEEP));
 

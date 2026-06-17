@@ -16,7 +16,7 @@ use crate::app::App;
 use crate::types::{fmt_runtime, fmt_tokens_exact, ConnectionState};
 
 // ── Color Palette (Neo-Terminal Design Spec) ──
-const BG_DEEP: Color = Color::Rgb(3, 4, 10);
+const BG_DEEP: Color = Color::Rgb(0, 0, 0);
 const TEXT_SECONDARY: Color = Color::Rgb(166, 175, 216);
 const TEXT_MUTED: Color = Color::Rgb(126, 136, 181);
 const PURPLE: Color = Color::Rgb(197, 111, 255);

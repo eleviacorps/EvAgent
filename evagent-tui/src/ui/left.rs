@@ -12,7 +12,7 @@ use crate::app::App;
 use crate::types::{AgentState, fmt_tokens, fmt_tokens_exact};
 
 // ── Color Palette ──
-const BG_DEEP: Color = Color::Rgb(3, 4, 10);
+const BG_DEEP: Color = Color::Rgb(0, 0, 0);
 const BG_NAVY: Color = Color::Rgb(5, 7, 19);
 const BORDER: Color = Color::Rgb(37, 44, 82);
 const TEXT_PRIMARY: Color = Color::Rgb(201, 209, 255);

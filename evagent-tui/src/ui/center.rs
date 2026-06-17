@@ -13,7 +13,7 @@ use ratatui::{
 use crate::app::App;
 use crate::types::{AgentState, ConnectionState, fmt_duration};
 
-const BG_DEEP: Color = Color::Rgb(3, 4, 10);
+const BG_DEEP: Color = Color::Rgb(0, 0, 0);
 const BORDER: Color = Color::Rgb(37, 44, 82);
 const TEXT_PRIMARY: Color = Color::Rgb(201, 209, 255);
 const TEXT_SECONDARY: Color = Color::Rgb(166, 175, 216);
