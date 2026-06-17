@@ -12,6 +12,7 @@ use tokio::sync::mpsc;
 use tracing_subscriber;
 
 mod app;
+mod extract;
 mod types;
 mod ui;
 mod websocket;

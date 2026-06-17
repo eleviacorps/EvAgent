@@ -1,14 +1,24 @@
 #![allow(dead_code)]
 use std::collections::HashMap;
+use std::time::{Duration, Instant};
 use ratatui::style::Color;
 use tokio::sync::mpsc;
 
+use crate::extract::{extract_file_activity, extract_tool_call, parse_progress};
 use crate::types::*;
 
 /// Maximum number of chat messages to keep.
 const MAX_CHAT_HISTORY: usize = 200;
 /// Maximum number of agent status cards to show.
 const MAX_AGENT_DISPLAY: usize = 12;
+/// Maximum timeline events to retain.
+const MAX_TIMELINE: usize = 100;
+/// Maximum tool calls to retain.
+const MAX_TOOL_CALLS: usize = 50;
+/// Maximum file activities to retain.
+const MAX_FILE_ACTIVITIES: usize = 50;
+/// Default token limit for the context window.
+const DEFAULT_TOKEN_LIMIT: u64 = 8000;
 
 /// Main application state.
 pub struct App {
@@ -28,7 +38,7 @@ pub struct App {
     pub stats: SessionStats,
     /// WebSocket connection status
     pub connection_status: ConnectionState,
-    /// Last dispatch result text (to show in chat)
+    /// Last dispatch result text
     pub aggregated_result: Option<String>,
     /// Whether we should scroll chat to bottom
     pub scroll_chat: bool,
@@ -40,8 +50,22 @@ pub struct App {
     pub available_skills: Vec<String>,
     /// Track if we've requested initial data
     pub initialized: bool,
-    /// Track if connection failure message has been shown (to avoid spam)
+    /// Track if connection failure message has been shown
     pub connection_fail_shown: bool,
+
+    // ─── Neo-Terminal Command Center Fields ───
+    /// Execution timeline events
+    pub timeline_events: Vec<TimelineEvent>,
+    /// Tracked tool calls
+    pub tool_calls: Vec<ToolCall>,
+    /// Tracked file activities
+    pub file_activities: Vec<FileActivity>,
+    /// When the current session started
+    pub session_start_time: Option<Instant>,
+    /// Current session runtime
+    pub runtime: Duration,
+    /// Token limit for usage bars
+    pub token_limit: u64,
 }
 
 impl Default for App {
@@ -72,12 +96,17 @@ impl Default for App {
             available_skills: Vec::new(),
             initialized: false,
             connection_fail_shown: false,
+            timeline_events: Vec::new(),
+            tool_calls: Vec::new(),
+            file_activities: Vec::new(),
+            session_start_time: None,
+            runtime: Duration::ZERO,
+            token_limit: DEFAULT_TOKEN_LIMIT,
         }
     }
 }
 
 impl App {
-    /// Create a new app with default state.
     pub fn new() -> Self {
         Self::default()
     }
@@ -88,7 +117,6 @@ impl App {
             WsServerMessage::Pong => {
                 self.connection_status = ConnectionState::Connected;
                 self.connection_fail_shown = false;
-                // Request initial data on first connection
             }
             WsServerMessage::SubAgentUpdate {
                 task_id,
@@ -98,7 +126,6 @@ impl App {
                 tokens_used,
                 wall_clock_ms,
             } => {
-                // Parse progress percentage from progress text if possible
                 let progress_val = parse_progress(&progress);
                 let agent_state = AgentState::from_str(&status);
 
@@ -114,7 +141,6 @@ impl App {
                     existing.tokens_used = tokens_used;
                     existing.wall_clock_ms = wall_clock_ms;
                 } else {
-                    // Need to clone progress for the new AgentStatus since it's used later
                     let progress_clone = progress.clone();
                     self.active_agents.push(AgentStatus {
                         task_id,
@@ -133,8 +159,6 @@ impl App {
                     .iter()
                     .map(|a| a.tokens_used)
                     .sum();
-
-                // Count completed
                 self.stats.completed_agents = self
                     .active_agents
                     .iter()
@@ -142,19 +166,55 @@ impl App {
                     .count();
                 self.stats.total_agents = self.active_agents.len();
 
-                // Limit displayed agents by removing old completed ones
+                // Limit displayed agents
                 let running_ids: Vec<String> = self.active_agents.iter()
                     .filter(|a| a.status == AgentState::Running)
                     .map(|a| a.task_id.clone())
                     .collect();
                 if self.active_agents.len() > MAX_AGENT_DISPLAY {
                     self.active_agents.retain(|a| {
-                        a.status == AgentState::Running
-                            || running_ids.contains(&a.task_id)
+                        a.status == AgentState::Running || running_ids.contains(&a.task_id)
                     });
                 }
 
-                // Add a chat message for completion/failure
+                // Start session timer on first agent activity
+                if self.session_start_time.is_none() {
+                    self.session_start_time = Some(Instant::now());
+                }
+
+                // ─── Add timeline event ───
+                let now = chrono::Local::now();
+                let timestamp = now.format("%H:%M:%S").to_string();
+                let ts = timestamp.clone();
+                self.timeline_events.push(TimelineEvent {
+                    timestamp: ts,
+                    agent_name: agent_name.clone(),
+                    action: progress.clone(),
+                    duration_ms: wall_clock_ms,
+                    status: agent_state.clone(),
+                    details: Vec::new(),
+                });
+                while self.timeline_events.len() > MAX_TIMELINE {
+                    self.timeline_events.remove(0);
+                }
+
+                // ─── Try to extract tool call ───
+                if let Some(tc) = extract_tool_call(&agent_name, &progress, &timestamp, wall_clock_ms) {
+                    self.tool_calls.push(tc);
+                    while self.tool_calls.len() > MAX_TOOL_CALLS {
+                        self.tool_calls.remove(0);
+                    }
+                }
+
+                // ─── Try to extract file activity ───
+                if let Some(fa) = extract_file_activity(&progress, &timestamp) {
+                    self.file_activities.push(fa);
+                    while self.file_activities.len() > MAX_FILE_ACTIVITIES {
+                        self.file_activities.remove(0);
+                    }
+                }
+
+                // Add chat messages for completion/failure
                 if agent_state == AgentState::Completed {
                     self.add_chat_message(
                         "system",
@@ -181,15 +241,12 @@ impl App {
                 self.aggregated_result = Some(aggregated.clone());
                 self.stats.domain = self.domain.clone();
 
-                // Add the result to chat
                 self.add_chat_message("assistant", &format!("**Result (session {}):**\n{}", session_id, aggregated));
 
-                // Log outputs summary
                 if !outputs.is_empty() {
                     self.add_chat_message("system", &format!("📦 Received {} agent output(s)", outputs.len()));
                 }
 
-                // Mark all running agents as completed
                 for agent in self.active_agents.iter_mut() {
                     if agent.status == AgentState::Running {
                         agent.status = AgentState::Completed;
@@ -199,7 +256,6 @@ impl App {
                 self.stats.completed_agents = self.stats.total_agents;
             }
             WsServerMessage::SessionUpdate { session } => {
-                // Try to extract useful fields from session JSON
                 if let Some(_id) = session.get("id").and_then(|v| v.as_str()) {
                     let domain = session
                         .get("domain")
@@ -215,7 +271,6 @@ impl App {
                         .and_then(|v| v.as_f64())
                         .unwrap_or(0.0);
 
-                    // Update current session stats
                     self.stats.total_tokens = tokens;
                     self.stats.total_cost = cost;
                     if !domain.is_empty() {
@@ -251,14 +306,12 @@ impl App {
                         })
                     })
                     .collect();
-                // Keep last 20 sessions
                 self.sessions.truncate(20);
             }
             WsServerMessage::Error { message } => {
                 match message.as_str() {
                     "connect" => {
                         self.connection_status = ConnectionState::Disconnected;
-                        // Only set chat message once on first connection failure
                         if !self.connection_fail_shown {
                             self.add_chat_message("system", "Cannot reach EvAgent core engine. Retrying...");
                             self.connection_fail_shown = true;
@@ -269,12 +322,36 @@ impl App {
                         self.add_chat_message("system", "Connection lost. Reconnecting...");
                     }
                     _ => {
-                        // Show the error in chat but don't disconnect
                         self.add_chat_message("system", &message);
                     }
                 }
             }
         }
+    }
+
+    /// Build the agent tree hierarchy from active_agents.
+    /// Agents with dot-separated names (e.g. "planner.architect.code")
+    /// are arranged as a tree; flat names become root nodes.
+    pub fn get_agent_tree(&self) -> Vec<AgentTreeNode> {
+        let mut nodes: Vec<AgentTreeNode> = Vec::new();
+
+        // Sort for deterministic output
+        let mut sorted: Vec<&AgentStatus> = self.active_agents.iter().collect();
+        sorted.sort_by(|a, b| a.agent_name.cmp(&b.agent_name));
+
+        for agent in &sorted {
+            let parts: Vec<&str> = agent.agent_name.split('.').collect();
+            let node_name = parts.last().unwrap_or(&"").to_string();
+            let level = parts.len().saturating_sub(1);
+
+            nodes.push(AgentTreeNode {
+                name: node_name,
+                level,
+                status: agent.status.clone(),
+            });
+        }
+
+        nodes
     }
 
     /// Add a message to the chat history.
@@ -293,10 +370,8 @@ impl App {
             return;
         }
 
-        // Add the user message to chat
         self.add_chat_message("user", &prompt);
 
-        // Build and send the dispatch message
         let msg = serde_json::json!({
             "type": "DispatchTask",
             "goal": prompt,
@@ -306,7 +381,9 @@ impl App {
 
         let _ = ws_send.send(msg.to_string());
 
-        // Clear input
+        // Start session timer
+        self.session_start_time = Some(Instant::now());
+
         self.input.clear();
         self.input_cursor = 0;
     }
@@ -329,38 +406,8 @@ impl App {
 
     /// Update tick - called each frame for animations/progress.
     pub fn tick(&mut self) {
-        // Nothing periodic needed currently
-    }
-}
-
-/// Extract a percentage (0.0–100.0) from a progress string like "70%" or "searching... 55%".
-fn parse_progress(text: &str) -> f32 {
-    // Try to find a percentage number in the text
-    if let Some(percent_str) = text.split('%').next() {
-        if let Some(last_num) = percent_str.split_whitespace().last() {
-            if let Ok(val) = last_num.parse::<f32>() {
-                return val.clamp(0.0, 100.0);
-            }
+        if let Some(start) = self.session_start_time {
+            self.runtime = start.elapsed();
         }
-    }
-    // Fallback: try to find any number followed by %
-    if let Some(pos) = text.find('%') {
-        let before = &text[..pos];
-        let num_part = before.split_whitespace().last().unwrap_or("");
-        if let Ok(val) = num_part.parse::<f32>() {
-            return val.clamp(0.0, 100.0);
-        }
-    }
-    // Heuristic based on keywords
-    let lower = text.to_lowercase();
-    if lower.contains("complete") || lower.contains("done") || lower.contains("finished") {
-        100.0
-    } else if lower.contains("search") || lower.contains("research") {
-        // random-ish estimate; actual progress comes from server
-        50.0
-    } else if lower.contains("start") || lower.contains("begin") {
-        10.0
-    } else {
-        0.0
     }
 }

@@ -1,10 +1,11 @@
 #![allow(dead_code)]
 use chrono::{DateTime, Utc};
+use ratatui::style::Color;
 use serde::{Deserialize, Serialize};
+use std::time::Duration;
 
 // ─── WebSocket Client Messages (TUI → Core) ───
 
-#[allow(dead_code)]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type")]
 pub enum WsClientMessage {
@@ -69,7 +70,6 @@ pub enum WsServerMessage {
 // ─── Internal State Types ───
 
 #[derive(Debug, Clone)]
-#[allow(dead_code)]
 pub struct AgentStatus {
     pub task_id: String,
     pub agent_name: String,
@@ -111,7 +111,6 @@ impl AgentState {
     }
 }
 
-#[allow(dead_code)]
 #[derive(Debug, Clone)]
 pub struct ChatMessage {
     pub role: String,
@@ -129,7 +128,6 @@ impl ChatMessage {
     }
 }
 
-#[allow(dead_code)]
 #[derive(Debug, Clone)]
 pub struct SessionInfo {
     pub id: String,
@@ -200,8 +198,6 @@ impl ConnectionState {
 
 // ─── Domain Colors ───
 
-use ratatui::style::Color;
-
 pub fn domain_color(domain: &str) -> Color {
     match domain.to_lowercase().as_str() {
         "coding" => Color::Blue,
@@ -213,4 +209,85 @@ pub fn domain_color(domain: &str) -> Color {
         "media" => Color::Red,
         _ => Color::White,
     }
+}
+
+// ─── Neo-Terminal Command Center UI Types ───
+
+/// A node in the agent tree hierarchy (flat with level for rendering).
+#[derive(Debug, Clone)]
+pub struct AgentTreeNode {
+    pub name: String,
+    pub level: usize,
+    pub status: AgentState,
+}
+
+/// An event on the execution timeline.
+#[derive(Debug, Clone)]
+pub struct TimelineEvent {
+    pub timestamp: String,
+    pub agent_name: String,
+    pub action: String,
+    pub duration_ms: u64,
+    pub status: AgentState,
+    pub details: Vec<String>,
+}
+
+/// A recorded tool call.
+#[derive(Debug, Clone)]
+pub struct ToolCall {
+    pub icon: String,
+    pub tool_name: String,
+    pub target: String,
+    pub timestamp: String,
+    pub duration_ms: u64,
+}
+
+/// A recorded file activity.
+#[derive(Debug, Clone)]
+pub struct FileActivity {
+    pub path: String,
+    pub action: String,
+    pub timestamp: String,
+}
+
+// ─── Formatting Helpers ───
+
+pub fn fmt_tokens(count: u64) -> String {
+    if count >= 1_000_000 {
+        format!("{:.1}M", count as f64 / 1_000_000.0)
+    } else if count >= 1_000 {
+        format!("{:.1}K", count as f64 / 1_000.0)
+    } else {
+        count.to_string()
+    }
+}
+
+pub fn fmt_tokens_exact(count: u64) -> String {
+    let s = count.to_string();
+    let mut result = String::new();
+    for (i, c) in s.chars().rev().enumerate() {
+        if i > 0 && i % 3 == 0 {
+            result.insert(0, ',');
+        }
+        result.insert(0, c);
+    }
+    result
+}
+
+pub fn fmt_duration(ms: u64) -> String {
+    if ms >= 60_000 {
+        format!("{}m{:02}s", ms / 60_000, (ms % 60_000) / 1000)
+    } else if ms >= 1000 {
+        format!("{:.1}s", ms as f64 / 1000.0)
+    } else {
+        format!("{}ms", ms)
+    }
+}
+
+pub fn fmt_runtime(dur: Duration) -> String {
+    let total_secs = dur.as_secs();
+    let hours = total_secs / 3600;
+    let minutes = (total_secs % 3600) / 60;
+    let seconds = total_secs % 60;
+    format!("{:02}:{:02}:{:02}", hours, minutes, seconds)
 }
