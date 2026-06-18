@@ -4,16 +4,24 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "bun run src/index.tsx",
+    "dev": "bun src/index.tsx",
     "build": "tsc",
-    "start": "bun run src/index.tsx"
+    "start": "bun src/index.tsx"
   },
   "dependencies": {
     "@opentui/core": "0.3.4",
-    "@opentui/solid": "0.3.4",
+    "@opentui/core-darwin-arm64": "^0.4.1",
+    "@opentui/core-darwin-x64": "^0.4.1",
+    "@opentui/core-linux-arm64": "^0.4.1",
+    "@opentui/core-linux-arm64-musl": "^0.4.1",
+    "@opentui/core-linux-x64": "^0.4.1",
+    "@opentui/core-linux-x64-musl": "^0.4.1",
+    "@opentui/core-win32-arm64": "^0.4.1",
+    "@opentui/core-win32-x64": "^0.4.1",
     "@opentui/keymap": "0.3.4",
-    "solid-js": "1.9.10",
-    "opentui-spinner": "0.0.7"
+    "@opentui/solid": "0.3.4",
+    "opentui-spinner": "0.0.7",
+    "solid-js": "1.9.10"
   },
   "devDependencies": {
     "typescript": "5.8.2",
