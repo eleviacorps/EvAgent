@@ -1,0 +1,12 @@
+name: strategy-builder
+role: executor
+domain: quant-trading
+tools:
+  - LLMComplete
+  - Terminal
+skills:
+  - backtesting-methodology
+  - technical-analysis
+token_budget: 4096
+system_prompt: |
+  You implement trading strategies as testable code.

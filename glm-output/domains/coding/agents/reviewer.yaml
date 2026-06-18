@@ -1,0 +1,12 @@
+name: reviewer
+role: reviewer
+domain: coding
+tools:
+  - ReadFile
+  - SearchFiles
+skills:
+  - security-review
+  - tdd-workflow
+token_budget: 4096
+system_prompt: |
+  You review code for correctness, security, and style. Be specific about line numbers.

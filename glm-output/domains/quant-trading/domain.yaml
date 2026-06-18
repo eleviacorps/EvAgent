@@ -1,0 +1,19 @@
+name: quant-trading
+patterns:
+  - '\\btrade\\b'
+  - '\\bstock\\b'
+  - '\\bportfolio\\b'
+  - '\\bbtc\\b'
+  - '\\bprice\\b'
+  - '\\bmarket\\b'
+  - '\\bbacktest\\b'
+agents:
+  - market-analyst
+  - risk-calc
+  - strategy-builder
+skills:
+  - technical-analysis
+  - risk-calculation
+  - backtesting-methodology
+  - market-regime
+priority: 1

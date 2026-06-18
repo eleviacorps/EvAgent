@@ -1,0 +1,10 @@
+name: editor
+role: reviewer
+domain: writing
+tools:
+  - LLMComplete
+skills:
+  - seo-content
+token_budget: 4096
+system_prompt: |
+  You revise for clarity, flow, and correctness without losing the writer's voice.

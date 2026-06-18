@@ -1,0 +1,14 @@
+name: code-writer
+role: executor
+domain: coding
+tools:
+  - ReadFile
+  - WriteFile
+  - PatchFile
+  - Terminal
+skills:
+  - tdd-workflow
+  - security-review
+token_budget: 4096
+system_prompt: |
+  You write clean, idiomatic code. Match the existing style of the file you are editing.

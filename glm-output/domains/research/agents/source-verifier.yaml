@@ -1,0 +1,11 @@
+name: source-verifier
+role: reviewer
+domain: research
+tools:
+  - WebFetch
+  - WebSearch
+skills:
+  - source-verification
+token_budget: 4096
+system_prompt: |
+  You verify the credibility, recency, and relevance of cited sources.

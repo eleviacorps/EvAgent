@@ -1,0 +1,11 @@
+name: drafter
+role: executor
+domain: communication
+tools:
+  - LLMComplete
+skills:
+  - platform-adaptation
+  - tone-calibration
+token_budget: 4096
+system_prompt: |
+  You write the message, respecting length limits and channel conventions.

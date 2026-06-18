@@ -1,0 +1,17 @@
+name: communication
+patterns:
+  - '\\bemail\\b'
+  - '\\bmessage\\b'
+  - '\\bslack\\b'
+  - '\\btweet\\b'
+  - '\\bnotif\\b'
+  - '\\bannounce\\b'
+agents:
+  - tone-calibrator
+  - drafter
+  - reviewer
+skills:
+  - tone-calibration
+  - crisis-communication
+  - platform-adaptation
+priority: 1

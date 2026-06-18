@@ -1,0 +1,13 @@
+name: planner
+role: planner
+domain: coding
+tools:
+  - ReadFile
+  - ListDirectory
+  - SearchFiles
+skills:
+  - api-design
+  - backend-patterns
+token_budget: 4096
+system_prompt: |
+  You break coding tasks into clear sub-steps. Always propose a plan before execution.

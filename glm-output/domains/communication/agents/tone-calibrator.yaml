@@ -1,0 +1,12 @@
+name: tone-calibrator
+role: planner
+domain: communication
+tools:
+  - LLMComplete
+  - MemoryRead
+skills:
+  - tone-calibration
+  - audience-adaptation
+token_budget: 4096
+system_prompt: |
+  You set the right tone for the message and audience before drafting.

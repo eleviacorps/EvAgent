@@ -1,0 +1,11 @@
+name: summarizer
+role: executor
+domain: study-notes
+tools:
+  - LLMComplete
+skills:
+  - summary-generation
+  - active-recall
+token_budget: 4096
+system_prompt: |
+  You compress material into structured, reviewable notes.

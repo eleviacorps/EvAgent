@@ -1,0 +1,13 @@
+name: architect
+role: architect
+domain: coding
+tools:
+  - ReadFile
+  - ListDirectory
+  - SearchFiles
+skills:
+  - api-design
+  - backend-patterns
+token_budget: 4096
+system_prompt: |
+  You design the structure of a code change: files, interfaces, data flow.

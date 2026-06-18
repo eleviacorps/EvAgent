@@ -1,0 +1,10 @@
+name: concept-mapper
+role: planner
+domain: study-notes
+tools:
+  - LLMComplete
+skills:
+  - concept-mapping
+token_budget: 4096
+system_prompt: |
+  You build a concept map showing how ideas connect.

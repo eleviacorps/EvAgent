@@ -1,211 +1,141 @@
-import { render } from "@opentui/solid"
-import {
-  createEffect,
-  createSignal,
-  For,
-  Show,
-  onMount,
-  onCleanup,
-} from "solid-js"
+// EvAgent TUI — based on OpenCode's @opentui/solid rendering
+import { ensureSolidTransformPlugin } from "@opentui/solid/bun-plugin"
+ensureSolidTransformPlugin()
+
+import { render, TimeToFirstDraw } from "@opentui/solid"
+import { createCliRenderer, RGBA } from "@opentui/core"
 import { createDefaultOpenTuiKeymap } from "@opentui/keymap/opentui"
+import { createSignal, For, Show, onMount, onCleanup } from "solid-js"
 
-// ── Configuration ──
-const WS_URL = "ws://127.0.0.1:9753/ws"
+const empty = { topLeft:"", bottomLeft:"", vertical:"", topRight:"", bottomRight:"", horizontal:" ", bottomT:"", topT:"", cross:"", leftT:"", rightT:"" }
+const border = { border:["left" as const,"right" as const], customBorderChars:{...empty, vertical:"┃"} }
 
-interface ChatMessage {
-  role: "user" | "assistant" | "system"
-  content: string
+// OpenCode dark theme
+const C = {
+  bg: RGBA.fromInts(10,10,10),
+  panel: RGBA.fromInts(20,20,20),
+  el: RGBA.fromInts(30,30,30),
+  border: RGBA.fromInts(40,40,40),
+  text: RGBA.fromInts(220,220,220),
+  muted: RGBA.fromInts(128,128,128),
+  blue: RGBA.fromInts(92,156,245),
+  green: RGBA.fromInts(127,216,143),
+  red: RGBA.fromInts(224,108,117),
 }
 
-interface AgentInfo {
-  task_id: string
-  agent_name: string
-  status: string
-  progress: string
-  tokens_used: number
-}
-
-const theme = {
-  bg: "#050508" as const,
-  surface: "#0a0a12" as const,
-  border: "#1a1a2e" as const,
-  text: "#d4d4e8" as const,
-  muted: "#6b6b8d" as const,
-  accent: "#4fc3f7" as const,
-  green: "#4ade80" as const,
-  red: "#ef4444" as const,
-  amber: "#fbbf24" as const,
-  panelBg: "#0d0d14" as const,
-}
+const WS = "ws://127.0.0.1:9753/ws"
 
 function App() {
-  const [messages, setMessages] = createSignal<ChatMessage[]>([])
-  const [input, setInput] = createSignal("")
-  const [connected, setConnected] = createSignal(false)
-  const [agents, setAgents] = createSignal<AgentInfo[]>([])
-  const [tokens, setTokens] = createSignal(0)
-  let wsRef: WebSocket | null = null
-  let reconnectTimer: ReturnType<typeof setTimeout> | null = null
+  const [msgs, setMsgs] = createSignal<{r:string;c:string}[]>([])
+  const [inp, setInp] = createSignal("")
+  const [on, setOn] = createSignal(false)
+  let ws: WebSocket|null = null
+  let sv: any
 
-  function connect() {
-    wsRef = new WebSocket(WS_URL)
-    wsRef.onopen = () => {
-      setConnected(true)
-      addMsg("system", "Connected")
-      wsRef!.send(JSON.stringify({ type: "Ping" }))
-    }
-    wsRef.onmessage = (e) => {
+  function add(r:string,c:string) { setMsgs(p=>[...p,{r,c}]) }
+  
+  function send() {
+    const t = inp().trim()
+    if (!t||!ws||ws.readyState!==WebSocket.OPEN) return
+    add("user",t)
+    ws!.send(JSON.stringify({type:"DispatchTask",goal:t,context:null,domain:"general"}))
+    setInp("")
+  }
+
+  onMount(()=>{
+    ws = new WebSocket(WS)
+    ws.onopen = () => { setOn(true); add("system","Connected"); ws!.send(JSON.stringify({type:"Ping"})) }
+    ws.onmessage = e => {
       try {
-        handleMsg(JSON.parse(e.data))
+        const m = JSON.parse(e.data)
+        if (m.type === "DispatchResult" && m.aggregated) {
+          add("assistant", m.aggregated)
+          setTimeout(() => sv?.scrollToEnd?.(), 50)
+        }
+        if (m.type === "Error") add("system", m.message||"Error")
       } catch {}
     }
-    wsRef.onclose = () => {
-      setConnected(false)
-      addMsg("system", "Disconnected, reconnecting...")
-      scheduleReconnect()
-    }
-    wsRef.onerror = () => {
-      if (wsRef?.readyState !== WebSocket.OPEN) scheduleReconnect()
-    }
-  }
-
-  function scheduleReconnect() {
-    if (reconnectTimer) clearTimeout(reconnectTimer)
-    reconnectTimer = setTimeout(connect, 2000)
-  }
-
-  function handleMsg(msg: any) {
-    switch (msg.type) {
-      case "Pong":
-        setConnected(true)
-        break
-      case "DispatchResult":
-        if (msg.aggregated) addMsg("assistant", msg.aggregated)
-        break
-      case "SubAgentUpdate":
-        setAgents((prev) => {
-          const i = prev.findIndex((a) => a.task_id === msg.task_id)
-          const next = i >= 0 ? [...prev] : [...prev, {
-            task_id: msg.task_id,
-            agent_name: msg.agent_name,
-            status: "running",
-            progress: msg.progress || "",
-            tokens_used: 0,
-          }]
-          if (i >= 0) {
-            next[i] = { ...next[i], status: msg.status, progress: msg.progress, tokens_used: msg.tokens_used }
-          }
-          return next
-        })
-        setTokens((t) => t + (msg.tokens_used || 0))
-        break
-      case "Error":
-        addMsg("system", msg.message || "Error")
-        break
-    }
-  }
-
-  function addMsg(role: "user" | "assistant" | "system", content: string) {
-    setMessages((prev) => [...prev, { role, content }])
-  }
-
-  function sendMessage() {
-    const text = input().trim()
-    if (!text || !wsRef || wsRef.readyState !== WebSocket.OPEN) return
-    addMsg("user", text)
-    wsRef.send(JSON.stringify({
-      type: "DispatchTask", goal: text, context: null, domain: "general",
-    }))
-    setInput("")
-  }
-
-  onMount(() => connect())
-  onCleanup(() => wsRef?.close())
-
-  const messages_list = () => messages()
-  const agents_list = () => agents()
+    ws.onclose = () => { setOn(false); setTimeout(()=>{ws=new WebSocket(WS)},2000) }
+  })
+  onCleanup(() => ws?.close())
 
   return (
-    <box width="100%" height="100%" backgroundColor={theme.bg} flexDirection="column">
+    <box bg={C.bg} width="100%" height="100%" flexDirection="column">
       {/* Header */}
-      <box width="100%" height={1} backgroundColor={theme.surface} paddingLeft={2}>
-        <text fg={theme.accent} bold>EVAGENT</text>
-        <text fg={theme.muted}>  ● general  </text>
-        <text fg={theme.muted}>{tokens()} tokens</text>
-        <text fg={connected() ? theme.green : theme.red} bold>  ●  {connected() ? "Online" : "Offline"}</text>
+      <box bg={C.panel} width="100%" height={1} paddingLeft={2} alignItems="center">
+        <text fg={C.blue} bold>EVAGENT</text>
+        <text fg={C.muted}>  ●  </text>
+        <text fg={on ? C.green : C.red}>● {on ? "Online" : "Offline"}</text>
       </box>
 
       {/* Body */}
-      <box width="100%" height="100%" flexGrow={1} flexDirection="row">
-        {/* Sidebar */}
-        <box width={28} backgroundColor={theme.surface} paddingLeft={1} paddingRight={1} paddingTop={1}>
-          <text fg={theme.accent} bold uppercase>Agents</text>
-          <Show when={agents_list().length > 0} fallback={<text fg={theme.muted} italic>  None active</text>}>
-            <For each={agents_list()}>
-              {(a) => (
-                <box>
-                  <text fg={a.status === "running" ? theme.accent : theme.green} bold>
-                    {a.status === "running" ? "▶" : "✓"} {a.agent_name}
-                  </text>
-                </box>
-              )}
-            </For>
-          </Show>
-        </box>
-
-        {/* Conversation */}
-        <box flexGrow={1} flexDirection="column">
-          <scrollbox flexGrow={1} paddingLeft={2} paddingRight={2} paddingTop={1}>
-            <Show when={messages_list().length > 0} fallback={
-              <text fg={theme.muted} italic>Type a message to start.</text>
+      <box flexGrow={1} flexDirection="row" minHeight={0}>
+        <box flexGrow={1} minHeight={0} paddingBottom={1} paddingLeft={2} paddingRight={1}>
+          <scrollbox ref={(r:any)=>{sv=r}} flexGrow={1} stickyScroll={true} stickyStart="bottom"
+            verticalScrollbarOptions={{trackOptions:{bg:C.bg,fg:C.border}}}
+          >
+            <box height={1}/>
+            <Show when={msgs().length > 0} fallback={
+              <box paddingLeft={1}><text fg={C.muted} italic>{on ? "Type a message" : "Connecting..."}</text></box>
             }>
-              <For each={messages_list()}>
-                {(msg) => (
-                  <box width="100%" marginBottom={1}>
-                    <Show when={msg.role === "user"}>
-                      <box backgroundColor={theme.panelBg} paddingX={2} paddingY={0} borderColor={theme.border}>
-                        <text fg={theme.accent} bold>You</text>
-                      </box>
-                      <box backgroundColor={theme.panelBg} paddingLeft={2} paddingRight={2} paddingBottom={1}>
-                        <text fg={theme.text}>{msg.content}</text>
-                      </box>
-                    </Show>
-                    <Show when={msg.role === "assistant"}>
-                      <box backgroundColor={theme.surface} paddingX={2} paddingY={0} borderColor={theme.border}>
-                        <text fg={theme.green} bold>EvAgent</text>
-                      </box>
-                      <box backgroundColor={theme.surface} paddingLeft={2} paddingRight={2}>
-                        <text fg={theme.text}>{msg.content}</text>
-                      </box>
-                    </Show>
-                    <Show when={msg.role === "system"}>
-                      <text fg={theme.muted} italic>  {msg.content}</text>
-                    </Show>
+              <For each={msgs()}>{m => <>
+                <Show when={m.r==="user"}>
+                  <box border={["left"]} customBorderChars={border.customBorderChars}
+                    borderColor={C.blue} marginTop={1}
+                  >
+                    <box paddingTop={1} paddingBottom={1} paddingLeft={2} bg={C.panel}>
+                      <text fg={C.text}>{m.c}</text>
+                    </box>
                   </box>
-                )}
-              </For>
+                </Show>
+                <Show when={m.r==="assistant"}>
+                  <box border={["left"]} customBorderChars={border.customBorderChars}
+                    borderColor={C.green} marginTop={1}
+                  >
+                    <box paddingTop={1} paddingBottom={1} paddingLeft={2} bg={C.el}>
+                      <text fg={C.text}>{m.c}</text>
+                    </box>
+                  </box>
+                </Show>
+                <Show when={m.r==="system"}>
+                  <box paddingLeft={3} paddingTop={1}>
+                    <text fg={C.muted} italic>{m.c}</text>
+                  </box>
+                </Show>
+              </>}</For>
             </Show>
           </scrollbox>
+        </box>
 
-          {/* Input */}
-          <box width="100%" height={3} backgroundColor={theme.surface} paddingLeft={2} paddingRight={2} borderTopColor={theme.border}>
-            <box width="100%" height={1} backgroundColor={theme.panelBg} paddingLeft={1} marginTop={1} borderColor={theme.border}>
-              <text fg={theme.green} bold>{">"}</text>
-              <input
-                value={input()}
-                onChange={(e: any) => setInput(e.target?.value ?? "")}
-                onSubmit={() => sendMessage()}
-                placeholder="Type a message..."
-                fg={theme.text}
-                placeholderFg={theme.muted}
-                flexGrow={1}
-              />
-            </box>
-          </box>
+        {/* Sidebar */}
+        <box bg={C.panel} width={26} paddingLeft={1} paddingRight={1} paddingTop={1}>
+          <text fg={C.blue} bold uppercase>Agents</text>
+          <text fg={C.muted} italic>  None</text>
+        </box>
+      </box>
+
+      {/* Input — OpenCode-style 3-line with border */}
+      <box bg={C.panel} width="100%" height={3} paddingLeft={2} paddingRight={2} alignItems="center">
+        <box bg={C.bg} width="100%" height={1} paddingLeft={1} borderColor={C.border} alignItems="center">
+          <text fg={C.green} bold>{">"}</text>
+          <input value={inp()} onChange={(e:any)=>setInp(e.target?.value??"")} onSubmit={send}
+            placeholder="Type a message..." fg={C.text} placeholderFg={C.muted} flexGrow={1}
+          />
         </box>
       </box>
     </box>
   )
 }
 
-render(() => <App />)
+// ── Bootstrap ──
+async function main() {
+  const renderer = await createCliRenderer({
+    targetFps: 60,
+    exitOnCtrlC: true,
+    useMouse: true,
+  })
+  const keymap = createDefaultOpenTuiKeymap(renderer)
+  await render(() => <App />, renderer)
+}
+
+main().catch(console.error)

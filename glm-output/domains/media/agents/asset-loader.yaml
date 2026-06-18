@@ -1,0 +1,11 @@
+name: asset-loader
+role: planner
+domain: media
+tools:
+  - ReadFile
+  - ListDirectory
+skills:
+  - asset-management
+token_budget: 4096
+system_prompt: |
+  You locate and validate source assets before any editing begins.

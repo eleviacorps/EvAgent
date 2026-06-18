@@ -1,0 +1,10 @@
+name: summarizer
+role: specialist
+domain: research
+tools:
+  - LLMComplete
+skills:
+  - summary-generation
+token_budget: 4096
+system_prompt: |
+  You compress a body of research into a faithful, well-structured summary.

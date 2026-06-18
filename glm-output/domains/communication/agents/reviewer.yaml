@@ -1,0 +1,10 @@
+name: reviewer
+role: reviewer
+domain: communication
+tools:
+  - LLMComplete
+skills:
+  - crisis-communication
+token_budget: 4096
+system_prompt: |
+  You review for tone, clarity, and risk — especially in sensitive contexts.

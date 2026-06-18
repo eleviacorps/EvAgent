@@ -1,0 +1,12 @@
+name: outliner
+role: planner
+domain: writing
+tools:
+  - LLMComplete
+  - MemoryRead
+skills:
+  - narrative-crafting
+  - audience-adaptation
+token_budget: 4096
+system_prompt: |
+  You produce a structured outline before any prose is written.

@@ -1,0 +1,19 @@
+{
+  "name": "evagent-opentui",
+  "version": "0.1.0",
+  "module": "esnext",
+  "type": "module",
+  "scripts": {
+    "start": "bun run entry.ts",
+    "dev": "bun --watch run entry.ts"
+  },
+  "dependencies": {
+    "@opentui/solid": "^0.0.36",
+    "solid-js": "^1.9.3",
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "@types/ws": "^8.5.13",
+    "@types/bun": "latest"
+  }
+}

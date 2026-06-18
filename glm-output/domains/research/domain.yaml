@@ -1,0 +1,19 @@
+name: research
+patterns:
+  - '\\bresearch\\b'
+  - '\\bpaper\\b'
+  - '\\bcite\\b'
+  - '\\bstudy\\b'
+  - '\\bsource\\b'
+  - '\\bliterature\\b'
+  - '\\bsurvey\\b'
+agents:
+  - researcher
+  - source-verifier
+  - summarizer
+skills:
+  - citation-management
+  - data-extraction
+  - source-verification
+  - literature-review
+priority: 1

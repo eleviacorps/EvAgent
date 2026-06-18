@@ -1,0 +1,24 @@
+name: coding
+patterns:
+  - '\\bcode\\b'
+  - '\\bbug\\b'
+  - '\\bfunction\\b'
+  - '\\bapi\\b'
+  - '\\brefactor\\b'
+  - '\\bclass\\b'
+  - '\\bcrash\\b'
+  - '\\bimplement\\b'
+  - '\\bbuild\\b'
+  - '\\bcompile\\b'
+agents:
+  - planner
+  - architect
+  - code-writer
+  - reviewer
+skills:
+  - api-design
+  - backend-patterns
+  - tdd-workflow
+  - security-review
+  - database-migrations
+priority: 1

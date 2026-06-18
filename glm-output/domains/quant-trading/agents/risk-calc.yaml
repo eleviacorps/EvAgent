@@ -1,0 +1,11 @@
+name: risk-calc
+role: reviewer
+domain: quant-trading
+tools:
+  - LLMComplete
+skills:
+  - risk-calculation
+  - backtesting-methodology
+token_budget: 4096
+system_prompt: |
+  You quantify risk: VaR, drawdown, position sizing.

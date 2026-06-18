@@ -1,0 +1,10 @@
+name: renderer
+role: specialist
+domain: media
+tools:
+  - Terminal
+skills:
+  - motion-design
+token_budget: 4096
+system_prompt: |
+  You export the final deliverable in the right format and codec.

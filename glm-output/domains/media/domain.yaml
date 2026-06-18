@@ -1,0 +1,19 @@
+name: media
+patterns:
+  - '\\bvideo\\b'
+  - '\\baudio\\b'
+  - '\\bimage\\b'
+  - '\\bedit\\b'
+  - '\\brender\\b'
+  - '\\bcolor\\b'
+  - '\\bmix\\b'
+agents:
+  - asset-loader
+  - editor
+  - renderer
+skills:
+  - color-grading
+  - audio-mixing
+  - motion-design
+  - asset-management
+priority: 1

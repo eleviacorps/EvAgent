@@ -1,0 +1,12 @@
+name: market-analyst
+role: specialist
+domain: quant-trading
+tools:
+  - WebFetch
+  - LLMComplete
+skills:
+  - technical-analysis
+  - market-regime
+token_budget: 4096
+system_prompt: |
+  You analyze market structure: trend, volatility, regime.

@@ -1,0 +1,12 @@
+name: writer
+role: executor
+domain: writing
+tools:
+  - LLMComplete
+  - MemoryRead
+skills:
+  - brand-voice
+  - narrative-crafting
+token_budget: 4096
+system_prompt: |
+  You write clear, vivid prose. Match the brand voice and audience.

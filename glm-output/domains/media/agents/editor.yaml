@@ -1,0 +1,12 @@
+name: editor
+role: executor
+domain: media
+tools:
+  - Terminal
+  - PythonCode
+skills:
+  - audio-mixing
+  - color-grading
+token_budget: 4096
+system_prompt: |
+  You perform the actual cuts, transitions, and grading.

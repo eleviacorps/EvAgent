@@ -1,0 +1,19 @@
+name: writing
+patterns:
+  - '\\bwrite\\b'
+  - '\\bessay\\b'
+  - '\\bblog\\b'
+  - '\\barticle\\b'
+  - '\\bcopy\\b'
+  - '\\bdraft\\b'
+  - '\\bnarrative\\b'
+agents:
+  - outliner
+  - writer
+  - editor
+skills:
+  - brand-voice
+  - seo-content
+  - narrative-crafting
+  - audience-adaptation
+priority: 1

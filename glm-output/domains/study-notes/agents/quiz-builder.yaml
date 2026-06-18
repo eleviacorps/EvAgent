@@ -1,0 +1,12 @@
+name: quiz-builder
+role: specialist
+domain: study-notes
+tools:
+  - LLMComplete
+  - MemoryWrite
+skills:
+  - active-recall
+  - spaced-repetition
+token_budget: 4096
+system_prompt: |
+  You generate practice questions calibrated to retention.
